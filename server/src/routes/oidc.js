@@ -7,27 +7,59 @@ const { JWT_SECRET } = require('../config');
 
 const router = express.Router();
 
-// In-memory state store for CSRF protection (state → { createdAt, redirectUri })
-const pendingStates = new Map();
-const STATE_TTL = 5 * 60 * 1000; // 5 minutes
+// ---------------------------------------------------------------------------
+// oidc_states table — created lazily on first use so that the DB proxy is
+// already pointing at a live connection when this code runs.
+// ---------------------------------------------------------------------------
+let oidcTableReady = false;
+function ensureOidcTable() {
+  if (oidcTableReady) return;
+  db.prepare(`CREATE TABLE IF NOT EXISTS oidc_states (
+    state TEXT PRIMARY KEY,
+    redirect_uri TEXT NOT NULL,
+    nonce TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`).run();
+  oidcTableReady = true;
+}
 
+// ---------------------------------------------------------------------------
+// State store helpers (SQLite-backed, replaces in-memory pendingStates Map)
+// ---------------------------------------------------------------------------
+function storeOidcState(state, redirectUri, nonce) {
+  ensureOidcTable();
+  // Clean up expired states first (older than 10 minutes)
+  db.prepare("DELETE FROM oidc_states WHERE created_at < datetime('now', '-10 minutes')").run();
+  db.prepare("INSERT INTO oidc_states (state, redirect_uri, nonce, created_at) VALUES (?, ?, ?, datetime('now'))").run(state, redirectUri, nonce);
+}
+
+function getAndDeleteOidcState(state) {
+  ensureOidcTable();
+  const row = db.prepare('SELECT * FROM oidc_states WHERE state = ?').get(state);
+  if (row) {
+    db.prepare('DELETE FROM oidc_states WHERE state = ?').run(state);
+  }
+  return row;
+}
+
+// ---------------------------------------------------------------------------
 // In-memory one-time code store for safe token handoff (code → { token, createdAt })
 // Avoids embedding JWTs in URL fragments (browser history / server log exposure).
+// ---------------------------------------------------------------------------
 const pendingTokens = new Map();
 const TOKEN_CODE_TTL = 2 * 60 * 1000; // 2 minutes
 
-// Cleanup expired entries periodically
+// Clean up expired tokens every minute
 setInterval(() => {
   const now = Date.now();
-  for (const [state, data] of pendingStates) {
-    if (now - data.createdAt > STATE_TTL) pendingStates.delete(state);
+  for (const [code, data] of pendingTokens.entries()) {
+    if (now > data.expires) pendingTokens.delete(code);
   }
-  for (const [code, data] of pendingTokens) {
-    if (now - data.createdAt > TOKEN_CODE_TTL) pendingTokens.delete(code);
-  }
-}, 60 * 1000);
+}, 60000);
 
+// ---------------------------------------------------------------------------
 // Read OIDC config from app_settings
+// ---------------------------------------------------------------------------
 function getOidcConfig() {
   const get = (key) => db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key)?.value || null;
   const issuer = get('oidc_issuer');
@@ -38,7 +70,9 @@ function getOidcConfig() {
   return { issuer: issuer.replace(/\/+$/, ''), clientId, clientSecret, displayName };
 }
 
+// ---------------------------------------------------------------------------
 // Cache discovery document
+// ---------------------------------------------------------------------------
 let discoveryCache = null;
 let discoveryCacheTime = 0;
 const DISCOVERY_TTL = 60 * 60 * 1000; // 1 hour
@@ -50,6 +84,16 @@ async function discover(issuer) {
   const res = await fetch(`${issuer}/.well-known/openid-configuration`);
   if (!res.ok) throw new Error('Failed to fetch OIDC discovery document');
   const doc = await res.json();
+
+  // Validate required fields and enforce HTTPS in production
+  const requiredFields = ['authorization_endpoint', 'token_endpoint', 'userinfo_endpoint'];
+  for (const field of requiredFields) {
+    if (!doc[field]) throw new Error(`OIDC discovery missing required field: ${field}`);
+    if (process.env.NODE_ENV === 'production' && !doc[field].startsWith('https://')) {
+      throw new Error(`OIDC discovery field ${field} must use HTTPS in production`);
+    }
+  }
+
   doc._issuer = issuer;
   discoveryCache = doc;
   discoveryCacheTime = Date.now();
@@ -69,7 +113,9 @@ function frontendUrl(path) {
   return base + path;
 }
 
+// ---------------------------------------------------------------------------
 // GET /api/auth/oidc/login — redirect to OIDC provider
+// ---------------------------------------------------------------------------
 router.get('/login', async (req, res) => {
   const config = getOidcConfig();
   if (!config) return res.status(400).json({ error: 'OIDC not configured' });
@@ -77,11 +123,12 @@ router.get('/login', async (req, res) => {
   try {
     const doc = await discover(config.issuer);
     const state = crypto.randomBytes(32).toString('hex');
-    const proto = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
-    const redirectUri = `${proto}://${host}/api/auth/oidc/callback`;
+    const nonce = crypto.randomBytes(32).toString('hex');
 
-    pendingStates.set(state, { createdAt: Date.now(), redirectUri });
+    const baseUrl = process.env.NOMAD_BASE_URL || `${req.protocol}://${req.headers.host}`;
+    const redirectUri = `${baseUrl}/api/auth/oidc/callback`;
+
+    storeOidcState(state, redirectUri, nonce);
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -89,6 +136,7 @@ router.get('/login', async (req, res) => {
       redirect_uri: redirectUri,
       scope: 'openid email profile',
       state,
+      nonce,
     });
 
     res.redirect(`${doc.authorization_endpoint}?${params}`);
@@ -98,7 +146,9 @@ router.get('/login', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
 // GET /api/auth/oidc/callback — handle provider callback
+// ---------------------------------------------------------------------------
 router.get('/callback', async (req, res) => {
   const { code, state, error: oidcError } = req.query;
 
@@ -111,17 +161,19 @@ router.get('/callback', async (req, res) => {
     return res.redirect(frontendUrl('/login?oidc_error=missing_params'));
   }
 
-  const pending = pendingStates.get(state);
+  const pending = getAndDeleteOidcState(state);
   if (!pending) {
     return res.redirect(frontendUrl('/login?oidc_error=invalid_state'));
   }
-  pendingStates.delete(state);
 
   const config = getOidcConfig();
   if (!config) return res.redirect(frontendUrl('/login?oidc_error=not_configured'));
 
   try {
     const doc = await discover(config.issuer);
+
+    const baseUrl = process.env.NOMAD_BASE_URL || `${req.protocol}://${req.headers.host}`;
+    const redirectUri = `${baseUrl}/api/auth/oidc/callback`;
 
     // Exchange code for tokens
     const tokenRes = await fetch(doc.token_endpoint, {
@@ -130,7 +182,7 @@ router.get('/callback', async (req, res) => {
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: pending.redirectUri,
+        redirect_uri: redirectUri,
         client_id: config.clientId,
         client_secret: config.clientSecret,
       }),
@@ -148,8 +200,27 @@ router.get('/callback', async (req, res) => {
     });
     const userInfo = await userInfoRes.json();
 
+    // Verify email is confirmed at the provider
+    if (userInfo.email_verified === false) {
+      return res.redirect(frontendUrl('/login?oidc_error=email_not_verified'));
+    }
+
     if (!userInfo.email) {
       return res.redirect(frontendUrl('/login?oidc_error=no_email'));
+    }
+
+    // Verify nonce if an id_token was returned
+    if (tokenData.id_token && pending.nonce) {
+      try {
+        const idTokenPayload = JSON.parse(Buffer.from(tokenData.id_token.split('.')[1], 'base64url').toString('utf8'));
+        if (idTokenPayload.nonce !== pending.nonce) {
+          console.error('[OIDC] Nonce mismatch');
+          return res.redirect(frontendUrl('/login?oidc_error=nonce_mismatch'));
+        }
+      } catch (nonceErr) {
+        console.error('[OIDC] Failed to verify nonce:', nonceErr.message);
+        return res.redirect(frontendUrl('/login?oidc_error=nonce_verification_failed'));
+      }
     }
 
     const email = userInfo.email.toLowerCase();
@@ -205,7 +276,8 @@ router.get('/callback', async (req, res) => {
     // This prevents the token from appearing in browser history or server access logs.
     const jwtToken = generateToken(user);
     const handoffCode = crypto.randomBytes(32).toString('hex');
-    pendingTokens.set(handoffCode, { token: jwtToken, createdAt: Date.now() });
+    const expires = Date.now() + TOKEN_CODE_TTL;
+    pendingTokens.set(handoffCode, { token: jwtToken, expires });
 
     res.redirect(frontendUrl(`/login?oidc_code=${handoffCode}`));
   } catch (err) {
@@ -214,8 +286,10 @@ router.get('/callback', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
 // POST /api/auth/oidc/token — exchange one-time code for JWT
 // The frontend calls this immediately after receiving the oidc_code query param.
+// ---------------------------------------------------------------------------
 router.post('/token', (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code is required' });
@@ -224,7 +298,7 @@ router.post('/token', (req, res) => {
   if (!entry) return res.status(400).json({ error: 'Invalid or expired code' });
 
   // Enforce TTL and single-use
-  if (Date.now() - entry.createdAt > TOKEN_CODE_TTL) {
+  if (Date.now() > entry.expires) {
     pendingTokens.delete(code);
     return res.status(400).json({ error: 'Code has expired' });
   }
