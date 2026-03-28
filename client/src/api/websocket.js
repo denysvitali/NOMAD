@@ -18,9 +18,9 @@ export function setRefetchCallback(fn) {
   refetchCallback = fn
 }
 
-function getWsUrl(token) {
+function getWsUrl() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${protocol}://${location.host}/ws?token=${token}`
+  return `${protocol}://${location.host}/ws`
 }
 
 function handleMessage(event) {
@@ -29,6 +29,10 @@ function handleMessage(event) {
     // Store our socket ID from welcome message
     if (parsed.type === 'welcome') {
       mySocketId = parsed.socketId
+      return
+    }
+    // Silently ignore protocol-level messages (authenticated, error ack, etc.)
+    if (parsed.type === 'authenticated') {
       return
     }
     listeners.forEach(fn => {
@@ -43,7 +47,12 @@ function scheduleReconnect() {
   if (reconnectTimer) return
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
-    if (currentToken) {
+    // Read a fresh token from storage in case it was refreshed
+    const freshToken = localStorage.getItem('auth_token')
+    if (freshToken) {
+      currentToken = freshToken
+      connectInternal(freshToken, true)
+    } else if (currentToken) {
       connectInternal(currentToken, true)
     }
   }, reconnectDelay)
@@ -55,11 +64,13 @@ function connectInternal(token, isReconnect = false) {
     return
   }
 
-  const url = getWsUrl(token)
+  const url = getWsUrl()
   socket = new WebSocket(url)
 
   socket.onopen = () => {
-    // connection established
+    // Send token as first message for authentication
+    socket.send(JSON.stringify({ type: 'auth', token }))
+
     reconnectDelay = 1000
     // Join active trips on any connect (initial or reconnect)
     if (activeTrips.size > 0) {
