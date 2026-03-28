@@ -56,7 +56,8 @@ router.post('/bulk', authenticate, (req, res) => {
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
-    return res.status(500).json({ error: 'Error saving settings', detail: err.message });
+    console.error('Error saving settings:', err);
+    return res.status(500).json({ error: 'An internal error occurred' });
   }
 
   res.json({ success: true, updated: Object.keys(settings).length });

@@ -5,6 +5,9 @@ const { broadcast } = require('../websocket');
 
 const router = express.Router({ mergeParams: true });
 
+const VALID_STATUSES = ['pending', 'confirmed', 'cancelled'];
+const VALID_TYPES = ['hotel', 'flight', 'restaurant', 'activity', 'car_rental', 'train', 'bus', 'cruise', 'other'];
+
 function verifyTripOwnership(tripId, userId) {
   return canAccessTrip(tripId, userId);
 }
@@ -37,6 +40,8 @@ router.post('/', authenticate, (req, res) => {
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
 
   if (!title) return res.status(400).json({ error: 'Title is required' });
+  if (status && !VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  if (type && !VALID_TYPES.includes(type)) return res.status(400).json({ error: 'Invalid type' });
 
   const result = db.prepare(`
     INSERT INTO reservations (trip_id, day_id, place_id, assignment_id, title, reservation_time, location, confirmation_number, notes, status, type)
@@ -77,6 +82,9 @@ router.put('/:id', authenticate, (req, res) => {
 
   const reservation = db.prepare('SELECT * FROM reservations WHERE id = ? AND trip_id = ?').get(id, tripId);
   if (!reservation) return res.status(404).json({ error: 'Reservation not found' });
+
+  if (status && !VALID_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  if (type && !VALID_TYPES.includes(type)) return res.status(400).json({ error: 'Invalid type' });
 
   db.prepare(`
     UPDATE reservations SET

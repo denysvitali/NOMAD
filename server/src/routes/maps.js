@@ -56,7 +56,7 @@ router.post('/search', authenticate, async (req, res) => {
   // No Google API key → use Nominatim (OpenStreetMap)
   if (!apiKey) {
     try {
-      const places = await searchNominatim(query, req.query.lang);
+      const places = await searchNominatim(query, /^[a-z]{2,5}(-[A-Za-z]{2,5})?$/.test(req.query.lang) ? req.query.lang : 'en');
       return res.json({ places, source: 'openstreetmap' });
     } catch (err) {
       console.error('Nominatim search error:', err);
@@ -72,7 +72,7 @@ router.post('/search', authenticate, async (req, res) => {
         'X-Goog-Api-Key': apiKey,
         'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.websiteUri,places.nationalPhoneNumber,places.types',
       },
-      body: JSON.stringify({ textQuery: query, languageCode: req.query.lang || 'en' }),
+      body: JSON.stringify({ textQuery: query, languageCode: /^[a-z]{2,5}(-[A-Za-z]{2,5})?$/.test(req.query.lang) ? req.query.lang : 'en' }),
     });
 
     const data = await response.json();
@@ -104,13 +104,15 @@ router.post('/search', authenticate, async (req, res) => {
 router.get('/details/:placeId', authenticate, async (req, res) => {
   const { placeId } = req.params;
 
+  if (!/^[A-Za-z0-9_\-]+$/.test(placeId)) return res.status(400).json({ error: 'Invalid place ID' });
+
   const apiKey = getMapsKey(req.user.id);
   if (!apiKey) {
     return res.status(400).json({ error: 'Google Maps API key not configured' });
   }
 
   try {
-    const lang = req.query.lang || 'de'
+    const lang = /^[a-z]{2,5}(-[A-Za-z]{2,5})?$/.test(req.query.lang) ? req.query.lang : 'de';
     const response = await fetch(`https://places.googleapis.com/v1/places/${placeId}?languageCode=${lang}`, {
       method: 'GET',
       headers: {
@@ -159,6 +161,8 @@ router.get('/details/:placeId', authenticate, async (req, res) => {
 // Proxies a Google Places photo (hides API key from client). Returns { photoUrl, attribution }.
 router.get('/place-photo/:placeId', authenticate, async (req, res) => {
   const { placeId } = req.params;
+
+  if (!/^[A-Za-z0-9_\-]+$/.test(placeId)) return res.status(400).json({ error: 'Invalid place ID' });
 
   // Check TTL cache
   const cached = photoCache.get(placeId);

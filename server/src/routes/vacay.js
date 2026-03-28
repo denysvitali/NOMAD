@@ -146,6 +146,8 @@ router.put('/plan', async (req, res) => {
     const years = db.prepare('SELECT year FROM vacay_years WHERE plan_id = ?').all(planId);
     for (const { year } of years) {
       try {
+        if (!/^\d{4}$/.test(String(year))) continue;
+        if (!/^[A-Z]{2}$/i.test(country)) continue;
         const cacheKey = `${year}-${country}`;
         let holidays = holidayCache.get(cacheKey)?.data;
         if (!holidays) {
@@ -566,6 +568,8 @@ router.get('/holidays/countries', async (req, res) => {
 
 router.get('/holidays/:year/:country', async (req, res) => {
   const { year, country } = req.params;
+  if (!/^\d{4}$/.test(String(year))) return res.status(400).json({ error: 'Invalid year' });
+  if (!/^[A-Z]{2}$/i.test(country)) return res.status(400).json({ error: 'Invalid country code' });
   const cacheKey = `${year}-${country}`;
   const cached = holidayCache.get(cacheKey);
   if (cached && Date.now() - cached.time < CACHE_TTL) return res.json(cached.data);

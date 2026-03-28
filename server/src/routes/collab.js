@@ -2,21 +2,56 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { URL } = require('url');
+const dns = require('dns');
+const { promisify } = require('util');
 const { v4: uuidv4 } = require('uuid');
 const { db, canAccessTrip } = require('../db/database');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, demoUploadBlock } = require('../middleware/auth');
 const { broadcast } = require('../websocket');
 
+const dnsLookup = promisify(dns.lookup);
+
+const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.dll', '.com', '.scr', '.pif', '.vbs', '.js', '.wsh', '.wsf', '.html', '.htm', '.svg', '.xml', '.xhtml'];
+
 const filesDir = path.join(__dirname, '../../uploads/files');
+const uploadsDir = path.resolve(__dirname, '../../uploads');
+
 const noteUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => { if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true }); cb(null, filesDir) },
     filename: (req, file, cb) => { cb(null, `${uuidv4()}${path.extname(file.originalname)}`) },
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (BLOCKED_EXTENSIONS.includes(ext)) {
+      cb(new Error('File type not allowed'));
+      return;
+    }
+    cb(null, true);
+  },
 });
 
 const router = express.Router({ mergeParams: true });
+
+async function isUrlSafe(rawUrl) {
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch { return false; }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+  try {
+    const { address } = await dnsLookup(parsed.hostname);
+    const parts = address.split('.').map(Number);
+    // Block private, loopback, and link-local
+    if (parts[0] === 127) return false;
+    if (parts[0] === 10) return false;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+    if (parts[0] === 192 && parts[1] === 168) return false;
+    if (parts[0] === 169 && parts[1] === 254) return false;
+    if (address === '0.0.0.0') return false;
+  } catch { return false; }
+  return true;
+}
 
 function verifyTripAccess(tripId, userId) {
   return canAccessTrip(tripId, userId);
@@ -146,7 +181,11 @@ router.delete('/notes/:id', authenticate, (req, res) => {
   const noteFiles = db.prepare('SELECT id, filename FROM trip_files WHERE note_id = ?').all(id);
   for (const f of noteFiles) {
     const filePath = path.join(__dirname, '../../uploads', f.filename);
-    try { fs.unlinkSync(filePath) } catch {}
+    const resolvedPath = path.resolve(filePath);
+    if (!resolvedPath.startsWith(uploadsDir + path.sep) && resolvedPath !== uploadsDir) {
+      continue; // path traversal attempt, skip
+    }
+    try { if (fs.existsSync(resolvedPath)) fs.unlinkSync(resolvedPath); } catch {}
   }
   db.prepare('DELETE FROM trip_files WHERE note_id = ?').run(id);
 
@@ -156,7 +195,7 @@ router.delete('/notes/:id', authenticate, (req, res) => {
 });
 
 // POST /notes/:id/files — upload attachment to note
-router.post('/notes/:id/files', authenticate, noteUpload.single('file'), (req, res) => {
+router.post('/notes/:id/files', authenticate, demoUploadBlock, noteUpload.single('file'), (req, res) => {
   const { tripId, id } = req.params;
   if (!verifyTripAccess(Number(tripId), req.user.id)) return res.status(404).json({ error: 'Trip not found' });
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
@@ -164,9 +203,10 @@ router.post('/notes/:id/files', authenticate, noteUpload.single('file'), (req, r
   const note = db.prepare('SELECT id FROM collab_notes WHERE id = ? AND trip_id = ?').get(id, tripId);
   if (!note) return res.status(404).json({ error: 'Note not found' });
 
+  const originalName = path.basename(req.file.originalname);
   const result = db.prepare(
     'INSERT INTO trip_files (trip_id, note_id, filename, original_name, file_size, mime_type) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(tripId, id, `files/${req.file.filename}`, req.file.originalname, req.file.size, req.file.mimetype);
+  ).run(tripId, id, `files/${req.file.filename}`, originalName, req.file.size, req.file.mimetype);
 
   const file = db.prepare('SELECT * FROM trip_files WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json({ file: { ...file, url: `/uploads/${file.filename}` } });
@@ -181,9 +221,12 @@ router.delete('/notes/:id/files/:fileId', authenticate, (req, res) => {
   const file = db.prepare('SELECT * FROM trip_files WHERE id = ? AND note_id = ?').get(fileId, id);
   if (!file) return res.status(404).json({ error: 'File not found' });
 
-  // Delete physical file
+  // Delete physical file with path traversal check
   const filePath = path.join(__dirname, '../../uploads', file.filename);
-  try { fs.unlinkSync(filePath) } catch {}
+  const resolvedPath = path.resolve(filePath);
+  if (resolvedPath.startsWith(uploadsDir + path.sep) || resolvedPath === uploadsDir) {
+    try { if (fs.existsSync(resolvedPath)) fs.unlinkSync(resolvedPath); } catch {}
+  }
 
   db.prepare('DELETE FROM trip_files WHERE id = ?').run(fileId);
   res.json({ success: true });
@@ -375,6 +418,7 @@ router.post('/messages', authenticate, (req, res) => {
   const { text, reply_to } = req.body;
   if (!verifyTripAccess(tripId, req.user.id)) return res.status(404).json({ error: 'Trip not found' });
   if (!text || !text.trim()) return res.status(400).json({ error: 'Message text is required' });
+  if (text.length > 5000) return res.status(400).json({ error: 'Message text too long (max 5000 characters)' });
 
   if (reply_to) {
     const replyMsg = db.prepare('SELECT id FROM collab_messages WHERE id = ? AND trip_id = ?').get(reply_to, tripId);
@@ -406,6 +450,9 @@ router.post('/messages/:id/react', authenticate, (req, res) => {
   const { emoji } = req.body;
   if (!verifyTripAccess(Number(tripId), req.user.id)) return res.status(404).json({ error: 'Trip not found' });
   if (!emoji) return res.status(400).json({ error: 'Emoji is required' });
+  if (typeof emoji !== 'string' || [...emoji].length > 3 || emoji.length > 20) {
+    return res.status(400).json({ error: 'Invalid emoji' });
+  }
 
   const msg = db.prepare('SELECT id FROM collab_messages WHERE id = ? AND trip_id = ?').get(id, tripId);
   if (!msg) return res.status(404).json({ error: 'Message not found' });
@@ -438,9 +485,11 @@ router.delete('/messages/:id', authenticate, (req, res) => {
 
 // ─── LINK PREVIEW ────────────────────────────────────────────────────────────
 
-router.get('/link-preview', authenticate, (req, res) => {
+router.get('/link-preview', authenticate, async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  if (!(await isUrlSafe(url))) return res.status(400).json({ error: 'URL not allowed' });
 
   try {
     const fetch = require('node-fetch');

@@ -125,9 +125,28 @@ router.get('/download/:filename', (req, res) => {
 async function restoreFromZip(zipPath, res) {
   const extractDir = path.join(dataDir, `restore-${Date.now()}`);
   try {
-    await fs.createReadStream(zipPath)
-      .pipe(unzipper.Extract({ path: extractDir }))
-      .promise();
+    // Safe extraction with zip-slip protection
+    const directory = await unzipper.Open.file(zipPath);
+    const extractDirResolved = path.resolve(extractDir);
+    for (const file of directory.files) {
+      const fullPath = path.join(extractDir, file.path);
+      const resolved = path.resolve(fullPath);
+      if (!resolved.startsWith(extractDirResolved + path.sep) && resolved !== extractDirResolved) {
+        throw new Error('Potentially unsafe file path in archive');
+      }
+      if (file.type === 'Directory') {
+        if (!fs.existsSync(fullPath)) fs.mkdirSync(fullPath, { recursive: true });
+      } else {
+        const dir = path.dirname(fullPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        await new Promise((resolve, reject) => {
+          file.stream()
+            .pipe(fs.createWriteStream(fullPath))
+            .on('finish', resolve)
+            .on('error', reject);
+        });
+      }
+    }
 
     const extractedDb = path.join(extractDir, 'travel.db');
     if (!fs.existsSync(extractedDb)) {
@@ -173,7 +192,7 @@ async function restoreFromZip(zipPath, res) {
   } catch (err) {
     console.error('Restore error:', err);
     if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
-    if (!res.headersSent) res.status(500).json({ error: err.message || 'Error restoring backup' });
+    if (!res.headersSent) res.status(500).json({ error: 'An internal error occurred' });
   }
 }
 

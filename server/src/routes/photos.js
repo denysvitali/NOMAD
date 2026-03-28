@@ -9,6 +9,7 @@ const { authenticate, demoUploadBlock } = require('../middleware/auth');
 const router = express.Router({ mergeParams: true });
 
 const photosDir = path.join(__dirname, '../../uploads/photos');
+const uploadsDir = path.resolve(__dirname, '../../uploads');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -94,12 +95,13 @@ router.post('/', authenticate, demoUploadBlock, upload.array('photos', 20), (req
   db.exec('BEGIN');
   try {
     for (const file of req.files) {
+      const originalName = path.basename(file.originalname);
       const result = insertPhoto.run(
         tripId,
         day_id || null,
         place_id || null,
         file.filename,
-        file.originalname,
+        originalName,
         file.size,
         file.mimetype,
         caption || null
@@ -154,10 +156,13 @@ router.delete('/:id', authenticate, (req, res) => {
   const photo = db.prepare('SELECT * FROM photos WHERE id = ? AND trip_id = ?').get(id, tripId);
   if (!photo) return res.status(404).json({ error: 'Photo not found' });
 
-  // Delete file
+  // Delete file with path traversal check
   const filePath = path.join(photosDir, photo.filename);
-  if (fs.existsSync(filePath)) {
-    try { fs.unlinkSync(filePath); } catch (e) { console.error('Error deleting photo file:', e); }
+  const resolvedPath = path.resolve(filePath);
+  if (resolvedPath.startsWith(uploadsDir + path.sep) || resolvedPath === uploadsDir) {
+    if (fs.existsSync(resolvedPath)) {
+      try { fs.unlinkSync(resolvedPath); } catch (e) { console.error('Error deleting photo file:', e); }
+    }
   }
 
   db.prepare('DELETE FROM photos WHERE id = ?').run(id);

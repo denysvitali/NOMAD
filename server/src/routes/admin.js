@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const { db } = require('../db/database');
 const { authenticate, adminOnly } = require('../middleware/auth');
@@ -150,7 +150,8 @@ router.post('/save-demo-baseline', (req, res) => {
     saveBaseline();
     res.json({ success: true, message: 'Demo baseline saved. Hourly resets will restore to this state.' });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to save baseline: ' + err.message });
+    console.error('Failed to save baseline:', err);
+    res.status(500).json({ error: 'An internal error occurred' });
   }
 });
 
@@ -201,17 +202,17 @@ router.post('/update', async (req, res) => {
 
   try {
     // 1. git pull
-    const pullOutput = execSync('git pull origin main', { cwd: rootDir, timeout: 60000, encoding: 'utf8' });
-    steps.push({ step: 'git pull', success: true, output: pullOutput.trim() });
+    execFileSync('git', ['pull', 'origin', 'main'], { cwd: rootDir, timeout: 60000, encoding: 'utf8' });
+    steps.push({ step: 'git pull', success: true });
 
     // 2. npm install server
-    execSync('npm install --production', { cwd: serverDir, timeout: 120000, encoding: 'utf8' });
+    execFileSync('npm', ['install', '--production'], { cwd: serverDir, timeout: 120000, encoding: 'utf8' });
     steps.push({ step: 'npm install (server)', success: true });
 
     // 3. npm install + build client (production only)
     if (process.env.NODE_ENV === 'production') {
-      execSync('npm install', { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
-      execSync('npm run build', { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
+      execFileSync('npm', ['install'], { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
+      execFileSync('npm', ['run', 'build'], { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
       steps.push({ step: 'npm install + build (client)', success: true });
     }
 
@@ -229,7 +230,8 @@ router.post('/update', async (req, res) => {
       process.exit(0);
     }, 1000);
   } catch (err) {
-    steps.push({ step: 'error', success: false, output: err.message });
+    console.error('Update failed:', err);
+    steps.push({ step: 'error', success: false });
     res.status(500).json({ success: false, steps });
   }
 });

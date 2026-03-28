@@ -10,6 +10,7 @@ const { broadcast } = require('../websocket');
 const router = express.Router({ mergeParams: true });
 
 const filesDir = path.join(__dirname, '../../uploads/files');
+const uploadsDir = path.resolve(__dirname, '../../uploads');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -23,7 +24,7 @@ const storage = multer.diskStorage({
 });
 
 const DEFAULT_ALLOWED_EXTENSIONS = 'jpg,jpeg,png,gif,webp,heic,pdf,doc,docx,xls,xlsx,txt,csv';
-const BLOCKED_EXTENSIONS = ['.svg', '.html', '.htm', '.xml'];
+const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.dll', '.com', '.scr', '.pif', '.vbs', '.js', '.wsh', '.wsf', '.html', '.htm', '.svg', '.xml', '.xhtml'];
 
 function getAllowedExtensions() {
   try {
@@ -93,6 +94,7 @@ router.post('/', authenticate, demoUploadBlock, upload.single('file'), (req, res
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
+  const originalName = path.basename(req.file.originalname);
   const result = db.prepare(`
     INSERT INTO trip_files (trip_id, place_id, reservation_id, filename, original_name, file_size, mime_type, description)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -101,7 +103,7 @@ router.post('/', authenticate, demoUploadBlock, upload.single('file'), (req, res
     place_id || null,
     reservation_id || null,
     req.file.filename,
-    req.file.originalname,
+    originalName,
     req.file.size,
     req.file.mimetype,
     description || null
@@ -162,8 +164,11 @@ router.delete('/:id', authenticate, (req, res) => {
   if (!file) return res.status(404).json({ error: 'File not found' });
 
   const filePath = path.join(filesDir, file.filename);
-  if (fs.existsSync(filePath)) {
-    try { fs.unlinkSync(filePath); } catch (e) { console.error('Error deleting file:', e); }
+  const resolvedPath = path.resolve(filePath);
+  if (resolvedPath.startsWith(uploadsDir + path.sep) || resolvedPath === uploadsDir) {
+    if (fs.existsSync(resolvedPath)) {
+      try { fs.unlinkSync(resolvedPath); } catch (e) { console.error('Error deleting file:', e); }
+    }
   }
 
   db.prepare('DELETE FROM trip_files WHERE id = ?').run(id);

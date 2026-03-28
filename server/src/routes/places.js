@@ -102,6 +102,11 @@ router.post('/', authenticate, (req, res) => {
   if (!name) {
     return res.status(400).json({ error: 'Place name is required' });
   }
+  if (name && name.length > 200) return res.status(400).json({ error: 'Name too long (max 200 characters)' });
+  if (description && description.length > 5000) return res.status(400).json({ error: 'Description too long (max 5000 characters)' });
+  if (notes && notes.length > 10000) return res.status(400).json({ error: 'Notes too long (max 10000 characters)' });
+  if (address && address.length > 500) return res.status(400).json({ error: 'Address too long (max 500 characters)' });
+  if (website && website.length > 500) return res.status(400).json({ error: 'Website too long (max 500 characters)' });
 
   const result = db.prepare(`
     INSERT INTO places (trip_id, name, description, lat, lng, address, category_id, price, currency,
@@ -213,6 +218,12 @@ router.put('/:id', authenticate, (req, res) => {
     duration_minutes, notes, image_url, google_place_id, website, phone,
     transport_mode, tags
   } = req.body;
+
+  if (name && name.length > 200) return res.status(400).json({ error: 'Name too long (max 200 characters)' });
+  if (description && description.length > 5000) return res.status(400).json({ error: 'Description too long (max 5000 characters)' });
+  if (notes && notes.length > 10000) return res.status(400).json({ error: 'Notes too long (max 10000 characters)' });
+  if (address && address.length > 500) return res.status(400).json({ error: 'Address too long (max 500 characters)' });
+  if (website && website.length > 500) return res.status(400).json({ error: 'Website too long (max 500 characters)' });
 
   db.prepare(`
     UPDATE places SET

@@ -142,7 +142,13 @@ router.get('/', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'Latitude and longitude are required' });
   }
 
-  const ck = cacheKey(lat, lng, date);
+  const latNum = parseFloat(lat);
+  const lngNum = parseFloat(lng);
+  if (isNaN(latNum) || latNum < -90 || latNum > 90) return res.status(400).json({ error: 'Invalid latitude' });
+  if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) return res.status(400).json({ error: 'Invalid longitude' });
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date format' });
+
+  const ck = cacheKey(latNum, lngNum, date);
 
   try {
     // ── Forecast for a specific date ──
@@ -156,7 +162,7 @@ router.get('/', authenticate, async (req, res) => {
 
       // Within 16-day forecast window → real forecast
       if (diffDays >= -1 && diffDays <= 16) {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&forecast_days=16`;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${latNum}&longitude=${lngNum}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto&forecast_days=16`;
         const response = await fetch(url);
         const data = await response.json();
 
@@ -197,7 +203,7 @@ router.get('/', authenticate, async (req, res) => {
         const startStr = startDate.toISOString().slice(0, 10);
         const endStr = endDate.toISOString().slice(0, 10);
 
-        const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&start_date=${startStr}&end_date=${endStr}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
+        const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${latNum}&longitude=${lngNum}&start_date=${startStr}&end_date=${endStr}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
         const response = await fetch(url);
         const data = await response.json();
 
@@ -252,7 +258,7 @@ router.get('/', authenticate, async (req, res) => {
     const cached = getCached(ck);
     if (cached) return res.json(cached);
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weathercode&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latNum}&longitude=${lngNum}&current=temperature_2m,weathercode&timezone=auto`;
     const response = await fetch(url);
     const data = await response.json();
 
@@ -286,7 +292,13 @@ router.get('/detailed', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'Latitude, longitude, and date are required' });
   }
 
-  const ck = `detailed_${cacheKey(lat, lng, date)}`;
+  const latNum = parseFloat(lat);
+  const lngNum = parseFloat(lng);
+  if (isNaN(latNum) || latNum < -90 || latNum > 90) return res.status(400).json({ error: 'Invalid latitude' });
+  if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) return res.status(400).json({ error: 'Invalid longitude' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date format' });
+
+  const ck = `detailed_${cacheKey(latNum, lngNum, date)}`;
 
   try {
     const cached = getCached(ck);
@@ -303,7 +315,7 @@ router.get('/detailed', authenticate, async (req, res) => {
       const refYear = targetDate.getFullYear() - 1;
       const refDateStr = `${refYear}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
 
-      const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}`
+      const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${latNum}&longitude=${lngNum}`
         + `&start_date=${refDateStr}&end_date=${refDateStr}`
         + `&hourly=temperature_2m,precipitation,weathercode,windspeed_10m,relativehumidity_2m`
         + `&daily=temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum,windspeed_10m_max,sunrise,sunset`
@@ -368,7 +380,7 @@ router.get('/detailed', authenticate, async (req, res) => {
     }
 
     // Within 16-day forecast window → full forecast with hourly data
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latNum}&longitude=${lngNum}`
       + `&hourly=temperature_2m,precipitation_probability,precipitation,weathercode,windspeed_10m,relativehumidity_2m`
       + `&daily=temperature_2m_max,temperature_2m_min,weathercode,sunrise,sunset,precipitation_probability_max,precipitation_sum,windspeed_10m_max`
       + `&timezone=auto&start_date=${dateStr}&end_date=${dateStr}`;
