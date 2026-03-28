@@ -2,7 +2,7 @@ name: Build & Push Docker Image
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=master
+            type=raw,value=latest
             type=sha,format=short
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
