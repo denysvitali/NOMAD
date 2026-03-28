@@ -35,6 +35,7 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # Runtime data
 *.pid
@@ -48,6 +49,7 @@ coverage
 
 # Cache
 .npm
+.pnpm-store
 .eslintcache
 .cache
 *.tsbuildinfo

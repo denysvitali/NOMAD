@@ -1,5 +1,4 @@
 const express = require('express');
-const fetch = require('node-fetch');
 const { db, getPlaceWithTags, canAccessTrip } = require('../db/database');
 const { authenticate } = require('../middleware/auth');
 const { broadcast } = require('../websocket');

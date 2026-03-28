@@ -1,20 +1,22 @@
 # Stage 1: React Client bauen
 FROM node:22-alpine AS client-builder
+RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app/client
-COPY client/package*.json ./
-RUN npm ci
+COPY client/package.json client/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY client/ ./
-RUN npm run build
+RUN pnpm run build
 
 # Stage 2: Produktions-Server
 FROM node:22-alpine
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 
 # Server-Dependencies installieren (better-sqlite3 braucht Build-Tools)
-COPY server/package*.json ./
+COPY server/package.json server/pnpm-lock.yaml ./
 RUN apk add --no-cache python3 make g++ && \
-    npm ci --production && \
+    pnpm install --frozen-lockfile --prod && \
     apk del python3 make g++
 
 # Server-Code kopieren

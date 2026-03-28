@@ -11,18 +11,18 @@ NOMAD (Navigation Organizer for Maps, Activities & Destinations) is a self-hoste
 ### Server (Express + SQLite)
 ```bash
 cd server
-npm install
-npm run dev          # nodemon auto-restart on port 3001
-npm start            # production mode
+pnpm install
+pnpm run dev          # nodemon auto-restart on port 3001
+pnpm start            # production mode
 ```
 
 ### Client (React + Vite)
 ```bash
 cd client
-npm install
-npm run dev          # Vite dev server on port 5173 (proxies /api, /uploads, /ws to :3001)
-npm run build        # production build (runs prebuild for icon generation first)
-npm run preview      # preview production build
+pnpm install
+pnpm run dev          # Vite dev server on port 5173 (proxies /api, /uploads, /ws to :3001)
+pnpm run build        # production build (runs prebuild for icon generation first)
+pnpm run preview      # preview production build
 ```
 
 ### Docker
@@ -35,7 +35,7 @@ The Dockerfile is a multi-stage build: builds client in stage 1, then copies dis
 ## Architecture
 
 - **Backend:** Express.js with CommonJS modules, SQLite via `better-sqlite3` (WAL mode), JWT auth (24h), WebSocket (`ws`) for real-time sync
-- **Frontend:** React 18 with ES modules, Vite, Tailwind CSS 3, Zustand for state, Leaflet for maps, PWA with Workbox
+- **Frontend:** React 19 with ES modules, Vite, Tailwind CSS 3, Zustand for state, Leaflet for maps, PWA with Workbox
 - **Real-time:** WebSocket on `/ws` path with room-based (per-trip) architecture, 30s heartbeat
 - **Auth:** JWT + optional OIDC/OAuth2 (Google, Apple, Keycloak, Authentik). First registered user becomes admin.
 

@@ -1,5 +1,4 @@
 const express = require('express');
-const fetch = require('node-fetch');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();

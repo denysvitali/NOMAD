@@ -6,7 +6,6 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuid } = require('uuid');
 const { v4: uuidv4 } = require('uuid');
-const fetch = require('node-fetch');
 const { db } = require('../db/database');
 const { authenticate, demoUploadBlock } = require('../middleware/auth');
 

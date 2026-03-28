@@ -492,7 +492,6 @@ router.get('/link-preview', authenticate, async (req, res) => {
   if (!(await isUrlSafe(url))) return res.status(400).json({ error: 'URL not allowed' });
 
   try {
-    const fetch = require('node-fetch');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 

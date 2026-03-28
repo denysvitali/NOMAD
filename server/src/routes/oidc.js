@@ -1,6 +1,5 @@
 const express = require('express');
 const crypto = require('crypto');
-const fetch = require('node-fetch');
 const jwt = require('jsonwebtoken');
 const { db } = require('../db/database');
 const { JWT_SECRET } = require('../config');

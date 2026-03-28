@@ -205,15 +205,15 @@ router.post('/update', async (req, res) => {
     execFileSync('git', ['pull', 'origin', 'main'], { cwd: rootDir, timeout: 60000, encoding: 'utf8' });
     steps.push({ step: 'git pull', success: true });
 
-    // 2. npm install server
-    execFileSync('npm', ['install', '--production'], { cwd: serverDir, timeout: 120000, encoding: 'utf8' });
-    steps.push({ step: 'npm install (server)', success: true });
+    // 2. pnpm install server
+    execFileSync('pnpm', ['install', '--prod'], { cwd: serverDir, timeout: 120000, encoding: 'utf8' });
+    steps.push({ step: 'pnpm install (server)', success: true });
 
-    // 3. npm install + build client (production only)
+    // 3. pnpm install + build client (production only)
     if (process.env.NODE_ENV === 'production') {
-      execFileSync('npm', ['install'], { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
-      execFileSync('npm', ['run', 'build'], { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
-      steps.push({ step: 'npm install + build (client)', success: true });
+      execFileSync('pnpm', ['install'], { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
+      execFileSync('pnpm', ['run', 'build'], { cwd: clientDir, timeout: 120000, encoding: 'utf8' });
+      steps.push({ step: 'pnpm install + build (client)', success: true });
     }
 
     // Read new version
