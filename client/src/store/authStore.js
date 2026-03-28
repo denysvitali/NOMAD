@@ -53,9 +53,25 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  logout: () => {
+  logout: async () => {
     disconnect()
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      } catch {}
+    }
     localStorage.removeItem('auth_token')
+    if ('caches' in window) {
+      caches.keys().then(names => {
+        names.forEach(name => {
+          if (name.startsWith('api-')) caches.delete(name)
+        })
+      })
+    }
     set({
       user: null,
       token: null,

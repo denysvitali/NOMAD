@@ -185,11 +185,19 @@ function MessageText({ text }) {
   const result = []
   parts.forEach((part, i) => {
     if (part) result.push(part)
-    if (urls[i]) result.push(
-      <a key={i} href={urls[i]} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2, opacity: 0.85 }}>
-        {urls[i]}
-      </a>
-    )
+    if (urls[i]) {
+      const url = urls[i]
+      const safeUrl = url.startsWith('http://') || url.startsWith('https://') ? url : null
+      if (safeUrl) {
+        result.push(
+          <a key={i} href={safeUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline', textUnderlineOffset: 2, opacity: 0.85 }}>
+            {url}
+          </a>
+        )
+      } else {
+        result.push(<span key={i}>{url}</span>)
+      }
+    }
   })
   return <>{result}</>
 }

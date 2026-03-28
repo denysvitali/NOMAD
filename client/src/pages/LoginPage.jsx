@@ -44,8 +44,9 @@ export default function LoginPage() {
       })
         .then(r => r.json())
         .then(data => {
-          if (data.token) {
-            localStorage.setItem('auth_token', data.token)
+          const token = data.token
+          if (token && /^[\w-]+\.[\w-]+\.[\w-]+$/.test(token)) {
+            localStorage.setItem('auth_token', token)
             navigate('/dashboard')
             window.location.reload()
           } else {
@@ -89,7 +90,7 @@ export default function LoginPage() {
     try {
       if (mode === 'register') {
         if (!username.trim()) { setError('Username is required'); setIsLoading(false); return }
-        if (password.length < 6) { setError('Password must be at least 6 characters'); setIsLoading(false); return }
+        if (password.length < 8) { setError('Password must be at least 8 characters'); setIsLoading(false); return }
         await register(username, email, password)
       } else {
         await login(email, password)

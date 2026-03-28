@@ -25,6 +25,16 @@ function escAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+function escHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function isValidCssColor(color) {
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color) ||
+    /^(rgb|hsl)a?\([^)]+\)$/i.test(color) ||
+    /^[a-z]{3,20}$/i.test(color)
+}
+
 function createPlaceIcon(place, orderNumbers, isSelected) {
   const size = isSelected ? 44 : 36
   const borderColor = isSelected ? '#111827' : 'white'
@@ -32,8 +42,8 @@ function createPlaceIcon(place, orderNumbers, isSelected) {
   const shadow = isSelected
     ? '0 0 0 3px rgba(17,24,39,0.25), 0 4px 14px rgba(0,0,0,0.3)'
     : '0 2px 8px rgba(0,0,0,0.22)'
-  const bgColor = place.category_color || '#6b7280'
-  const icon = place.category_icon || '📍'
+  const bgColor = isValidCssColor(place.category_color) ? place.category_color : '#6b7280'
+  const icon = escHtml(place.category_icon || '📍')
 
   // Number badges (bottom-right), supports multiple numbers for duplicate places
   let badgeHtml = ''
@@ -188,12 +198,12 @@ function RouteLabel({ midpoint, walkingText, drivingText }) {
     ">
       <span style="display:flex;align-items:center;gap:2px">
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M7 21l3-7"/><path d="M10 14l5-5"/><path d="M15 9l-4 7"/><path d="M18 18l-3-7"/></svg>
-        ${walkingText}
+        ${escHtml(walkingText)}
       </span>
       <span style="opacity:0.3">|</span>
       <span style="display:flex;align-items:center;gap:2px">
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2-4H7L5 10l-2.5 1.1C1.7 11.3 1 12.1 1 13v3c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
-        ${drivingText}
+        ${escHtml(drivingText)}
       </span>
     </div>`,
     iconSize: [0, 0],

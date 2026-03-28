@@ -23,6 +23,12 @@ function escHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+function isValidCssColor(color) {
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color) ||
+    /^(rgb|hsl)a?\([^)]+\)$/i.test(color) ||
+    /^[a-z]{3,20}$/i.test(color)
+}
+
 function absUrl(url) {
   if (!url) return null
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
@@ -137,7 +143,8 @@ export async function downloadTripPDF({ trip, days, places, assignments, categor
           const place = item.data.place
           if (!place) return ''
           const cat = categories.find(c => c.id === place.category_id)
-          const color = cat?.color || '#6366f1'
+          const rawColor = cat?.color || '#6366f1'
+          const color = isValidCssColor(rawColor) ? rawColor : '#6b7280'
 
           // Image: direct > google photo > fallback icon
           const directImg = safeImg(place.image_url)
@@ -400,7 +407,7 @@ ${daysHtml}
 
   const iframe = document.createElement('iframe')
   iframe.style.cssText = 'flex:1;width:100%;border:none;'
-  iframe.sandbox = 'allow-same-origin allow-modals'
+  iframe.sandbox = 'allow-modals'
   iframe.srcdoc = html
 
   card.appendChild(header)
