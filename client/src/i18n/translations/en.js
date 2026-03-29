@@ -277,6 +277,8 @@ const en = {
   'admin.keyValid': 'Connected',
   'admin.keyInvalid': 'Invalid',
   'admin.keySaved': 'API keys saved',
+  'admin.aviationKey': 'Aviation API Key (AeroDataBox)',
+  'admin.aviationKeyHint': 'For flight lookup by number. Free at rapidapi.com/aedbx-aedbx/api/aerodatabox (600 req/mo free)',
   'admin.oidcTitle': 'Single Sign-On (OIDC)',
   'admin.oidcSubtitle': 'Allow login via external providers like Google, Apple, Authentik or Keycloak.',
   'admin.oidcDisplayName': 'Display Name',
@@ -626,6 +628,10 @@ const en = {
   'reservations.searchAirport': 'Search airport...',
   'reservations.noAirportsFound': 'No airports found',
   'reservations.route': 'Route',
+  'reservations.lookupFlight': 'Lookup',
+  'reservations.flightFound': 'Flight details loaded',
+  'reservations.flightNotFound': 'Flight not found for this date',
+  'reservations.flightLookupError': 'Could not look up flight',
 
   // Budget
   'budget.title': 'Budget',

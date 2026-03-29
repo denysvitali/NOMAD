@@ -11,7 +11,7 @@ import CategoryManager from '../components/Admin/CategoryManager'
 import BackupPanel from '../components/Admin/BackupPanel'
 import GitHubPanel from '../components/Admin/GitHubPanel'
 import AddonManager from '../components/Admin/AddonManager'
-import { Users, Map, Briefcase, Shield, Trash2, Edit2, Camera, FileText, Eye, EyeOff, Save, CheckCircle, XCircle, Loader2, UserPlus, ArrowUpCircle, ExternalLink, Download, AlertTriangle, RefreshCw, GitBranch, Sun } from 'lucide-react'
+import { Users, Map, Briefcase, Shield, Trash2, Edit2, Camera, FileText, Eye, EyeOff, Save, CheckCircle, XCircle, Loader2, UserPlus, ArrowUpCircle, ExternalLink, Download, AlertTriangle, RefreshCw, GitBranch, Sun, Plane, ShieldCheck } from 'lucide-react'
 import CustomSelect from '../components/shared/CustomSelect'
 
 export default function AdminPage() {
@@ -50,6 +50,7 @@ export default function AdminPage() {
   // API Keys
   const [mapsKey, setMapsKey] = useState('')
   const [weatherKey, setWeatherKey] = useState('')
+  const [aviationKey, setAviationKey] = useState('')
   const [showKeys, setShowKeys] = useState({})
   const [savingKeys, setSavingKeys] = useState(false)
   const [validating, setValidating] = useState({})
@@ -106,6 +107,7 @@ export default function AdminPage() {
       const data = await authApi.getSettings()
       setMapsKey(data.settings?.maps_api_key || '')
       setWeatherKey(data.settings?.openweather_api_key || '')
+      setAviationKey(data.settings?.aviation_api_key || '')
     } catch (err) {
       // ignore
     }
@@ -151,6 +153,7 @@ export default function AdminPage() {
       await updateApiKeys({
         maps_api_key: mapsKey,
         openweather_api_key: weatherKey,
+        aviation_api_key: aviationKey,
       })
       toast.success(t('admin.keySaved'))
     } catch (err) {
@@ -161,10 +164,10 @@ export default function AdminPage() {
   }
 
   const handleValidateKeys = async () => {
-    setValidating({ maps: true, weather: true })
+    setValidating({ maps: true, weather: true, aviation: true })
     try {
       // Save first so validation uses the current values
-      await updateApiKeys({ maps_api_key: mapsKey, openweather_api_key: weatherKey })
+      await updateApiKeys({ maps_api_key: mapsKey, openweather_api_key: weatherKey, aviation_api_key: aviationKey })
       const result = await authApi.validateKeys()
       setValidation(result)
     } catch (err) {
@@ -178,7 +181,7 @@ export default function AdminPage() {
     setValidating(prev => ({ ...prev, [keyType]: true }))
     try {
       // Save first so validation uses the current values
-      await updateApiKeys({ maps_api_key: mapsKey, openweather_api_key: weatherKey })
+      await updateApiKeys({ maps_api_key: mapsKey, openweather_api_key: weatherKey, aviation_api_key: aviationKey })
       const result = await authApi.validateKeys()
       setValidation(prev => ({ ...prev, [keyType]: result[keyType] }))
     } catch (err) {
@@ -584,6 +587,53 @@ export default function AdminPage() {
                       </p>
                     )}
                     {validation.maps === false && (
+                      <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                        <span className="w-2 h-2 bg-red-500 rounded-full inline-block"></span>
+                        {t('admin.keyInvalid')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Aviation API Key (AeroDataBox / RapidAPI) */}
+                  <div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                      <Plane className="w-4 h-4" />
+                      {t('admin.aviationKey')}
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type={showKeys.aviation ? 'text' : 'password'}
+                          value={aviationKey}
+                          onChange={e => setAviationKey(e.target.value)}
+                          placeholder={t('settings.keyPlaceholder')}
+                          className="w-full pr-10 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-slate-300 dark:focus:ring-slate-600 focus:outline-none"
+                        />
+                        <button type="button" onClick={() => setShowKeys(s => ({ ...s, aviation: !s.aviation }))}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600">
+                          {showKeys.aviation ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleValidateKey('aviation')}
+                        disabled={!aviationKey || validating.aviation}
+                        className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40"
+                      >
+                        {validating.aviation
+                          ? <div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                          : <ShieldCheck className="w-3.5 h-3.5" />
+                        }
+                        {t('admin.validateKey')}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">{t('admin.aviationKeyHint')}</p>
+                    {validation.aviation === true && (
+                      <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block"></span>
+                        {t('admin.keyValid')}
+                      </p>
+                    )}
+                    {validation.aviation === false && (
                       <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                         <span className="w-2 h-2 bg-red-500 rounded-full inline-block"></span>
                         {t('admin.keyInvalid')}

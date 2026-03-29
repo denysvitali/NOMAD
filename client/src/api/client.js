@@ -147,6 +147,7 @@ export const mapsApi = {
   placePhoto: (placeId) => apiClient.get(`/maps/place-photo/${placeId}`).then(r => r.data),
   searchAirports: (q) => apiClient.get('/maps/airports', { params: { q } }).then(r => r.data),
   lookupAirline: (code) => apiClient.get('/maps/airline', { params: { code } }).then(r => r.data),
+  lookupFlight: (number, date) => apiClient.get('/maps/flight', { params: { number, date } }).then(r => r.data),
 }
 
 export const budgetApi = {

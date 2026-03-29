@@ -103,7 +103,7 @@ router.post('/demo-login', (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get('demo@nomad.app');
   if (!user) return res.status(500).json({ error: 'Demo user not found' });
   const token = generateToken(user);
-  const { password_hash, maps_api_key, openweather_api_key, unsplash_api_key, ...safe } = user;
+  const { password_hash, maps_api_key, openweather_api_key, unsplash_api_key, aviation_api_key, ...safe } = user;
   res.json({ token, user: { ...safe, avatar_url: avatarUrl(user) } });
 });
 
@@ -179,7 +179,7 @@ router.post('/login', authLimiter, (req, res) => {
 
   db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
   const token = generateToken(user);
-  const { password_hash, maps_api_key, openweather_api_key, unsplash_api_key, ...userWithoutSensitive } = user;
+  const { password_hash, maps_api_key, openweather_api_key, unsplash_api_key, aviation_api_key, ...userWithoutSensitive } = user;
 
   res.json({ token, user: { ...userWithoutSensitive, avatar_url: avatarUrl(user) } });
 });
@@ -263,34 +263,36 @@ router.put('/me/maps-key', authenticate, (req, res) => {
 
 // PUT /api/auth/me/api-keys
 router.put('/me/api-keys', authenticate, (req, res) => {
-  const { maps_api_key, openweather_api_key } = req.body;
+  const { maps_api_key, openweather_api_key, aviation_api_key } = req.body;
 
-  const userKeys = db.prepare('SELECT maps_api_key, openweather_api_key FROM users WHERE id = ?').get(req.user.id);
+  const userKeys = db.prepare('SELECT maps_api_key, openweather_api_key, aviation_api_key FROM users WHERE id = ?').get(req.user.id);
 
   db.prepare(
-    'UPDATE users SET maps_api_key = ?, openweather_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    'UPDATE users SET maps_api_key = ?, openweather_api_key = ?, aviation_api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
   ).run(
     maps_api_key !== undefined ? (maps_api_key || null) : userKeys.maps_api_key,
     openweather_api_key !== undefined ? (openweather_api_key || null) : userKeys.openweather_api_key,
+    aviation_api_key !== undefined ? (aviation_api_key || null) : userKeys.aviation_api_key,
     req.user.id
   );
 
   const updated = db.prepare(
-    'SELECT id, username, email, role, maps_api_key, openweather_api_key, avatar FROM users WHERE id = ?'
+    'SELECT id, username, email, role, maps_api_key, openweather_api_key, aviation_api_key, avatar FROM users WHERE id = ?'
   ).get(req.user.id);
 
-  res.json({ success: true, user: { ...updated, maps_api_key: maskApiKey(updated.maps_api_key), openweather_api_key: maskApiKey(updated.openweather_api_key), avatar_url: avatarUrl(updated) } });
+  res.json({ success: true, user: { ...updated, maps_api_key: maskApiKey(updated.maps_api_key), openweather_api_key: maskApiKey(updated.openweather_api_key), aviation_api_key: maskApiKey(updated.aviation_api_key), avatar_url: avatarUrl(updated) } });
 });
 
 // PUT /api/auth/me/settings
 router.put('/me/settings', authenticate, (req, res) => {
-  const { maps_api_key, openweather_api_key, username, email } = req.body;
+  const { maps_api_key, openweather_api_key, aviation_api_key, username, email } = req.body;
 
   const updates = [];
   const params = [];
 
   if (maps_api_key !== undefined) { updates.push('maps_api_key = ?'); params.push(maps_api_key || null); }
   if (openweather_api_key !== undefined) { updates.push('openweather_api_key = ?'); params.push(openweather_api_key || null); }
+  if (aviation_api_key !== undefined) { updates.push('aviation_api_key = ?'); params.push(aviation_api_key || null); }
   if (username !== undefined) { updates.push('username = ?'); params.push(username); }
   if (email !== undefined) { updates.push('email = ?'); params.push(email); }
 
@@ -301,10 +303,10 @@ router.put('/me/settings', authenticate, (req, res) => {
   }
 
   const updated = db.prepare(
-    'SELECT id, username, email, role, maps_api_key, openweather_api_key, avatar FROM users WHERE id = ?'
+    'SELECT id, username, email, role, maps_api_key, openweather_api_key, aviation_api_key, avatar FROM users WHERE id = ?'
   ).get(req.user.id);
 
-  res.json({ success: true, user: { ...updated, maps_api_key: maskApiKey(updated.maps_api_key), openweather_api_key: maskApiKey(updated.openweather_api_key), avatar_url: avatarUrl(updated) } });
+  res.json({ success: true, user: { ...updated, maps_api_key: maskApiKey(updated.maps_api_key), openweather_api_key: maskApiKey(updated.openweather_api_key), aviation_api_key: maskApiKey(updated.aviation_api_key), avatar_url: avatarUrl(updated) } });
 });
 
 // GET /api/auth/me/settings (admin only — returns API keys)
@@ -314,8 +316,8 @@ router.get('/me/settings', authenticate, (req, res) => {
   ).get(req.user.id);
   if (user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
 
-  const userKeys = db.prepare('SELECT maps_api_key, openweather_api_key, unsplash_api_key FROM users WHERE id = ?').get(req.user.id);
-  res.json({ settings: { maps_api_key: maskApiKey(userKeys.maps_api_key), openweather_api_key: maskApiKey(userKeys.openweather_api_key), unsplash_api_key: maskApiKey(userKeys.unsplash_api_key) } });
+  const userKeys = db.prepare('SELECT maps_api_key, openweather_api_key, unsplash_api_key, aviation_api_key FROM users WHERE id = ?').get(req.user.id);
+  res.json({ settings: { maps_api_key: maskApiKey(userKeys.maps_api_key), openweather_api_key: maskApiKey(userKeys.openweather_api_key), unsplash_api_key: maskApiKey(userKeys.unsplash_api_key), aviation_api_key: maskApiKey(userKeys.aviation_api_key) } });
 });
 
 // POST /api/auth/avatar — upload avatar
@@ -357,10 +359,10 @@ router.get('/users', authenticate, (req, res) => {
 
 // GET /api/auth/validate-keys (admin only)
 router.get('/validate-keys', authenticate, async (req, res) => {
-  const user = db.prepare('SELECT role, maps_api_key, openweather_api_key FROM users WHERE id = ?').get(req.user.id);
+  const user = db.prepare('SELECT role, maps_api_key, openweather_api_key, aviation_api_key FROM users WHERE id = ?').get(req.user.id);
   if (user?.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
 
-  const result = { maps: false, weather: false };
+  const result = { maps: false, weather: false, aviation: false };
 
   // Test Google Maps Places API
   if (user.maps_api_key) {
@@ -392,6 +394,24 @@ router.get('/validate-keys', authenticate, async (req, res) => {
       result.weather = weatherRes.status === 200;
     } catch (err) {
       result.weather = false;
+    }
+  }
+
+  // Test AeroDataBox API (flight data)
+  if (user.aviation_api_key) {
+    try {
+      const aviationRes = await fetch(
+        'https://aerodatabox.p.rapidapi.com/health/services/feeds',
+        {
+          headers: {
+            'x-rapidapi-key': user.aviation_api_key,
+            'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
+          },
+        }
+      );
+      result.aviation = aviationRes.status === 200;
+    } catch (err) {
+      result.aviation = false;
     }
   }
 

@@ -9,6 +9,13 @@ const router = express.Router();
 const ALL_AIRPORTS = aircodes.findAirport('');
 
 // Get API key: user's own key, or fall back to any admin's key
+function getAviationKey(userId) {
+  const user = db.prepare('SELECT aviation_api_key FROM users WHERE id = ?').get(userId);
+  if (user?.aviation_api_key) return user.aviation_api_key;
+  const admin = db.prepare("SELECT aviation_api_key FROM users WHERE role = 'admin' AND aviation_api_key IS NOT NULL AND aviation_api_key != '' LIMIT 1").get();
+  return admin?.aviation_api_key || null;
+}
+
 function getMapsKey(userId) {
   const user = db.prepare('SELECT maps_api_key FROM users WHERE id = ?').get(userId);
   if (user?.maps_api_key) return user.maps_api_key;
@@ -316,6 +323,94 @@ router.get('/airline', authenticate, (req, res) => {
       logo: best.logo || null,
     },
   });
+});
+
+// GET /api/maps/flight?number=LH123&date=2026-04-15
+// Looks up flight schedule via AeroDataBox (RapidAPI)
+router.get('/flight', authenticate, async (req, res) => {
+  const flightNumber = (req.query.number || '').trim().toUpperCase();
+  const date = (req.query.date || '').trim();
+
+  if (!flightNumber) return res.status(400).json({ error: 'Flight number is required' });
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Date is required (YYYY-MM-DD)' });
+
+  const apiKey = getAviationKey(req.user.id);
+  if (!apiKey) {
+    return res.status(400).json({ error: 'Aviation API key not configured. Add an AeroDataBox (RapidAPI) key in admin settings.' });
+  }
+
+  // Normalize flight number: "LH 123" → "LH123", "LH0123" → "LH123"
+  const normalized = flightNumber.replace(/\s+/g, '');
+
+  try {
+    const response = await fetch(
+      `https://aerodatabox.p.rapidapi.com/flights/number/${encodeURIComponent(normalized)}/${date}`,
+      {
+        headers: {
+          'x-rapidapi-key': apiKey,
+          'x-rapidapi-host': 'aerodatabox.p.rapidapi.com',
+        },
+      }
+    );
+
+    if (response.status === 404) {
+      return res.json({ flight: null });
+    }
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.error(`AeroDataBox API error (${response.status}):`, errText);
+      return res.status(response.status).json({ error: 'Flight lookup failed' });
+    }
+
+    const flights = await response.json();
+    if (!Array.isArray(flights) || flights.length === 0) {
+      return res.json({ flight: null });
+    }
+
+    // Take the first (most relevant) result
+    const f = flights[0];
+
+    const flight = {
+      flight_number: normalized,
+      airline: f.airline?.name || null,
+      departure_airport: null,
+      arrival_airport: null,
+      departure_time: null,
+      arrival_time: null,
+    };
+
+    if (f.departure?.airport) {
+      const depIata = f.departure.airport.iata || '';
+      const depName = f.departure.airport.name || '';
+      const depCity = f.departure.airport.municipalityName || '';
+      flight.departure_airport = depIata ? `${depIata} - ${depCity || depName}${depName && depCity ? ` (${depName})` : ''}` : depName;
+      flight.departure_time = f.departure.scheduledTime?.local || f.departure.scheduledTimeLocal || null;
+    }
+
+    if (f.arrival?.airport) {
+      const arrIata = f.arrival.airport.iata || '';
+      const arrName = f.arrival.airport.name || '';
+      const arrCity = f.arrival.airport.municipalityName || '';
+      flight.arrival_airport = arrIata ? `${arrIata} - ${arrCity || arrName}${arrName && arrCity ? ` (${arrName})` : ''}` : arrName;
+      flight.arrival_time = f.arrival.scheduledTime?.local || f.arrival.scheduledTimeLocal || null;
+    }
+
+    // Also resolve airline from aircodes if API didn't return it
+    if (!flight.airline) {
+      const codeMatch = normalized.match(/^([A-Z]{2})/);
+      if (codeMatch) {
+        const allMatches = aircodes.findAirline(codeMatch[1]).filter(a => a.iata === codeMatch[1]);
+        const passenger = allMatches.find(a => !/cargo|freight/i.test(a.name));
+        if (passenger) flight.airline = passenger.name;
+      }
+    }
+
+    res.json({ flight });
+  } catch (err) {
+    console.error('Flight lookup error:', err);
+    res.status(500).json({ error: 'Flight lookup error' });
+  }
 });
 
 module.exports = router;

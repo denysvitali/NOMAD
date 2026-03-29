@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Modal from '../shared/Modal'
 import CustomSelect from '../shared/CustomSelect'
 import AirportAutocomplete from '../shared/AirportAutocomplete'
-import { Plane, Hotel, Utensils, Train, Car, Ship, Ticket, FileText, Users, Paperclip, X, ExternalLink, Link2, ArrowRight } from 'lucide-react'
+import { Plane, Hotel, Utensils, Train, Car, Ship, Ticket, FileText, Users, Paperclip, X, ExternalLink, Link2, ArrowRight, Search, Loader2 } from 'lucide-react'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
 import { CustomDateTimePicker } from '../shared/CustomDateTimePicker'
@@ -73,7 +73,10 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
   const [isSaving, setIsSaving] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [pendingFiles, setPendingFiles] = useState([])
+  const [flightLookupLoading, setFlightLookupLoading] = useState(false)
+  const [flightLookupError, setFlightLookupError] = useState('')
   const airlineLookupRef = useRef(null)
+  const flightLookupRef = useRef(null)
 
   const assignmentOptions = useMemo(
     () => buildAssignmentOptions(days, assignments, t, locale),
@@ -113,6 +116,7 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
   const handleFlightNumberChange = useCallback((val) => {
     const v = val.toUpperCase().replace(/[^A-Z0-9]/g, '')
     setForm(prev => ({ ...prev, flight_number: v }))
+    setFlightLookupError('')
 
     // Extract airline code: 2-letter IATA code at start of flight number
     const match = v.match(/^([A-Z]{2})\d/)
@@ -126,7 +130,6 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
           if (data.airline) {
             setForm(prev => {
               const next = { ...prev, airline: data.airline.name }
-              // Auto-generate title from flight info
               next.title = buildFlightTitle(next)
               return next
             })
@@ -146,6 +149,68 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
       return next
     })
   }, [])
+
+  // Look up flight details from AeroDataBox API
+  const lookupFlight = useCallback(async (flightNum, dateTime) => {
+    if (!flightNum || !dateTime) return
+    // Need at least airline code + digits (e.g. LH123)
+    if (!/^[A-Z]{2}\d+$/.test(flightNum)) return
+
+    // Extract date from datetime (YYYY-MM-DDTHH:MM → YYYY-MM-DD)
+    const date = dateTime.slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+
+    setFlightLookupLoading(true)
+    setFlightLookupError('')
+    try {
+      const data = await mapsApi.lookupFlight(flightNum, date)
+      if (data.flight) {
+        setForm(prev => {
+          const next = { ...prev }
+          if (data.flight.airline) next.airline = data.flight.airline
+          if (data.flight.departure_airport) next.departure_airport = data.flight.departure_airport
+          if (data.flight.arrival_airport) next.arrival_airport = data.flight.arrival_airport
+          // Set departure time if we got one from the API
+          if (data.flight.departure_time) {
+            // departure_time is local time like "2026-04-15 09:00+01:00" — extract YYYY-MM-DDTHH:MM
+            const dt = data.flight.departure_time.replace(' ', 'T').slice(0, 16)
+            if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dt)) {
+              next.reservation_time = dt
+            }
+          }
+          next.title = buildFlightTitle(next)
+          return next
+        })
+        toast.success(t('reservations.flightFound'))
+      } else {
+        setFlightLookupError(t('reservations.flightNotFound'))
+      }
+    } catch (err) {
+      const msg = err.response?.data?.error || t('reservations.flightLookupError')
+      setFlightLookupError(msg)
+    } finally {
+      setFlightLookupLoading(false)
+    }
+  }, [toast, t])
+
+  // Auto-lookup when flight number and date both exist
+  const triggerAutoLookup = useCallback((flightNum, dateTime) => {
+    clearTimeout(flightLookupRef.current)
+    if (!flightNum || !dateTime) return
+    if (!/^[A-Z]{2}\d+$/.test(flightNum)) return
+    flightLookupRef.current = setTimeout(() => lookupFlight(flightNum, dateTime), 500)
+  }, [lookupFlight])
+
+  // When date changes for a flight, trigger lookup
+  const handleDateTimeChange = useCallback((v) => {
+    setForm(prev => {
+      const next = { ...prev, reservation_time: v }
+      if (next.type === 'flight' && next.flight_number && v && !next.departure_airport) {
+        triggerAutoLookup(next.flight_number, v)
+      }
+      return next
+    })
+  }, [triggerAutoLookup])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -237,19 +302,50 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
         {/* Flight-specific fields */}
         {form.type === 'flight' && (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Flight number + date + lookup */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label style={labelStyle}>{t('reservations.flightNumber')}</label>
                 <input type="text" value={form.flight_number} onChange={e => handleFlightNumberChange(e.target.value)}
                   placeholder={t('reservations.flightNumberPlaceholder')} style={inputStyle} maxLength={10} />
               </div>
               <div>
-                <label style={labelStyle}>{t('reservations.airline')}</label>
-                <input type="text" value={form.airline} readOnly tabIndex={-1}
-                  style={{ ...inputStyle, background: 'var(--bg-secondary)', color: form.airline ? 'var(--text-primary)' : 'var(--text-faint)' }}
-                  placeholder="—" />
+                <label style={labelStyle}>{t('reservations.datetime')}</label>
+                <CustomDateTimePicker value={form.reservation_time} onChange={handleDateTimeChange} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button type="button" onClick={() => lookupFlight(form.flight_number, form.reservation_time)}
+                  disabled={flightLookupLoading || !form.flight_number || !form.reservation_time}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, width: '100%',
+                    padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border-primary)',
+                    background: 'var(--bg-card)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    fontFamily: 'inherit', color: 'var(--text-muted)', justifyContent: 'center',
+                    opacity: flightLookupLoading || !form.flight_number || !form.reservation_time ? 0.5 : 1,
+                    transition: 'all 0.12s',
+                  }}>
+                  {flightLookupLoading
+                    ? <Loader2 size={13} className="animate-spin" />
+                    : <Search size={13} />
+                  }
+                  {t('reservations.lookupFlight')}
+                </button>
               </div>
             </div>
+            {flightLookupError && (
+              <div style={{ fontSize: 11, color: '#ef4444', marginTop: -8 }}>{flightLookupError}</div>
+            )}
+
+            {/* Airline (auto-filled) */}
+            {form.airline && (
+              <div>
+                <label style={labelStyle}>{t('reservations.airline')}</label>
+                <input type="text" value={form.airline} readOnly tabIndex={-1}
+                  style={{ ...inputStyle, background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
+              </div>
+            )}
+
+            {/* Departure / Arrival */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ alignItems: 'end' }}>
               <div>
                 <label style={labelStyle}>{t('reservations.departureAirport')}</label>
@@ -291,13 +387,31 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
           </div>
         )}
 
-        {/* Date/Time + Status */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label style={labelStyle}>{t('reservations.datetime')}</label>
-            <CustomDateTimePicker value={form.reservation_time} onChange={v => set('reservation_time', v)} />
+        {/* Date/Time + Status (non-flight types) */}
+        {form.type !== 'flight' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label style={labelStyle}>{t('reservations.datetime')}</label>
+              <CustomDateTimePicker value={form.reservation_time} onChange={v => set('reservation_time', v)} />
+            </div>
+            <div>
+              <label style={labelStyle}>{t('reservations.status')}</label>
+              <CustomSelect
+                value={form.status}
+                onChange={value => set('status', value)}
+                options={[
+                  { value: 'pending', label: t('reservations.pending') },
+                  { value: 'confirmed', label: t('reservations.confirmed') },
+                ]}
+                size="sm"
+              />
+            </div>
           </div>
-          <div>
+        )}
+
+        {/* Status (for flights - date is shown above) */}
+        {form.type === 'flight' && (
+          <div style={{ maxWidth: 200 }}>
             <label style={labelStyle}>{t('reservations.status')}</label>
             <CustomSelect
               value={form.status}
@@ -309,7 +423,7 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
               size="sm"
             />
           </div>
-        </div>
+        )}
 
         {/* Location + Booking Code */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
