@@ -27,6 +27,54 @@ function getMapsKey(userId) {
 const photoCache = new Map();
 const PHOTO_TTL = 12 * 60 * 60 * 1000; // 12 hours
 
+// Flight cache: dual-layer (in-memory + SQLite)
+// Flight schedules for a given number+date are effectively immutable,
+// so we cache aggressively: 7 days in-memory, 30 days in SQLite.
+const flightCache = new Map();
+const FLIGHT_MEM_TTL = 7 * 24 * 60 * 60 * 1000;  // 7 days in-memory
+const FLIGHT_DB_TTL = 30 * 24 * 60 * 60 * 1000;   // 30 days in SQLite
+
+function getFlightFromCache(key) {
+  // Layer 1: in-memory
+  const mem = flightCache.get(key);
+  if (mem && Date.now() - mem.fetchedAt < FLIGHT_MEM_TTL) {
+    return mem.data;
+  }
+
+  // Layer 2: SQLite
+  try {
+    const row = db.prepare('SELECT response_json, fetched_at FROM flight_cache WHERE cache_key = ?').get(key);
+    if (row && Date.now() - row.fetched_at < FLIGHT_DB_TTL) {
+      const data = JSON.parse(row.response_json);
+      // Promote back to memory cache
+      flightCache.set(key, { data, fetchedAt: row.fetched_at });
+      return data;
+    }
+  } catch { /* table may not exist yet before migration runs */ }
+
+  return null;
+}
+
+function setFlightCache(key, data) {
+  const now = Date.now();
+  // Layer 1: in-memory
+  flightCache.set(key, { data, fetchedAt: now });
+
+  // Layer 2: SQLite (persist for restarts)
+  try {
+    db.prepare(
+      'INSERT OR REPLACE INTO flight_cache (cache_key, response_json, fetched_at) VALUES (?, ?, ?)'
+    ).run(key, JSON.stringify(data), now);
+  } catch { /* ignore if table doesn't exist yet */ }
+
+  // Prune old SQLite entries occasionally (1 in 20 writes)
+  if (Math.random() < 0.05) {
+    try {
+      db.prepare('DELETE FROM flight_cache WHERE fetched_at < ?').run(now - FLIGHT_DB_TTL);
+    } catch { /* ignore */ }
+  }
+}
+
 // Nominatim search (OpenStreetMap) — free fallback when no Google API key
 async function searchNominatim(query, lang) {
   const params = new URLSearchParams({
@@ -341,6 +389,13 @@ router.get('/flight', authenticate, async (req, res) => {
 
   // Normalize flight number: "LH 123" → "LH123", "LH0123" → "LH123"
   const normalized = flightNumber.replace(/\s+/g, '');
+  const cacheKey = `${normalized}:${date}`;
+
+  // Check cache first (avoids API call entirely)
+  const cached = getFlightFromCache(cacheKey);
+  if (cached !== null) {
+    return res.json(cached);
+  }
 
   try {
     const response = await fetch(
@@ -354,7 +409,9 @@ router.get('/flight', authenticate, async (req, res) => {
     );
 
     if (response.status === 404) {
-      return res.json({ flight: null });
+      const result = { flight: null };
+      setFlightCache(cacheKey, result);
+      return res.json(result);
     }
 
     if (!response.ok) {
@@ -365,7 +422,9 @@ router.get('/flight', authenticate, async (req, res) => {
 
     const flights = await response.json();
     if (!Array.isArray(flights) || flights.length === 0) {
-      return res.json({ flight: null });
+      const result = { flight: null };
+      setFlightCache(cacheKey, result);
+      return res.json(result);
     }
 
     // Take the first (most relevant) result
@@ -406,7 +465,9 @@ router.get('/flight', authenticate, async (req, res) => {
       }
     }
 
-    res.json({ flight });
+    const result = { flight };
+    setFlightCache(cacheKey, result);
+    res.json(result);
   } catch (err) {
     console.error('Flight lookup error:', err);
     res.status(500).json({ error: 'Flight lookup error' });

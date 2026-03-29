@@ -635,6 +635,16 @@ function initDb() {
     () => {
       try { _db.exec('ALTER TABLE users ADD COLUMN aviation_api_key TEXT'); } catch {}
     },
+    // 34: Flight lookup cache table
+    () => {
+      _db.exec(`
+        CREATE TABLE IF NOT EXISTS flight_cache (
+          cache_key TEXT PRIMARY KEY,
+          response_json TEXT NOT NULL,
+          fetched_at INTEGER NOT NULL
+        )
+      `);
+    },
     // Future migrations go here (append only, never reorder)
   ];
 
