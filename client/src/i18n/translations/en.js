@@ -618,6 +618,14 @@ const en = {
   'reservations.linkAssignment': 'Link to day assignment',
   'reservations.pickAssignment': 'Select an assignment from your plan...',
   'reservations.noAssignment': 'No link (standalone)',
+  'reservations.flightNumber': 'Flight Number',
+  'reservations.flightNumberPlaceholder': 'e.g. LH123',
+  'reservations.airline': 'Airline',
+  'reservations.departureAirport': 'Departure',
+  'reservations.arrivalAirport': 'Arrival',
+  'reservations.searchAirport': 'Search airport...',
+  'reservations.noAirportsFound': 'No airports found',
+  'reservations.route': 'Route',
 
   // Budget
   'budget.title': 'Budget',

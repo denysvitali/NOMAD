@@ -6,7 +6,7 @@ const { broadcast } = require('../websocket');
 const router = express.Router({ mergeParams: true });
 
 const VALID_STATUSES = ['pending', 'confirmed', 'cancelled'];
-const VALID_TYPES = ['hotel', 'flight', 'restaurant', 'activity', 'car_rental', 'train', 'bus', 'cruise', 'other'];
+const VALID_TYPES = ['hotel', 'flight', 'restaurant', 'activity', 'car_rental', 'car', 'train', 'bus', 'cruise', 'event', 'tour', 'other'];
 
 function verifyTripOwnership(tripId, userId) {
   return canAccessTrip(tripId, userId);
@@ -34,7 +34,8 @@ router.get('/', authenticate, (req, res) => {
 // POST /api/trips/:tripId/reservations
 router.post('/', authenticate, (req, res) => {
   const { tripId } = req.params;
-  const { title, reservation_time, location, confirmation_number, notes, day_id, place_id, assignment_id, status, type } = req.body;
+  const { title, reservation_time, location, confirmation_number, notes, day_id, place_id, assignment_id, status, type,
+    flight_number, airline, departure_airport, arrival_airport } = req.body;
 
   const trip = verifyTripOwnership(tripId, req.user.id);
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
@@ -44,8 +45,9 @@ router.post('/', authenticate, (req, res) => {
   if (type && !VALID_TYPES.includes(type)) return res.status(400).json({ error: 'Invalid type' });
 
   const result = db.prepare(`
-    INSERT INTO reservations (trip_id, day_id, place_id, assignment_id, title, reservation_time, location, confirmation_number, notes, status, type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO reservations (trip_id, day_id, place_id, assignment_id, title, reservation_time, location, confirmation_number, notes, status, type,
+      flight_number, airline, departure_airport, arrival_airport)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     tripId,
     day_id || null,
@@ -57,7 +59,11 @@ router.post('/', authenticate, (req, res) => {
     confirmation_number || null,
     notes || null,
     status || 'pending',
-    type || 'other'
+    type || 'other',
+    flight_number || null,
+    airline || null,
+    departure_airport || null,
+    arrival_airport || null
   );
 
   const reservation = db.prepare(`
@@ -75,7 +81,8 @@ router.post('/', authenticate, (req, res) => {
 // PUT /api/trips/:tripId/reservations/:id
 router.put('/:id', authenticate, (req, res) => {
   const { tripId, id } = req.params;
-  const { title, reservation_time, location, confirmation_number, notes, day_id, place_id, assignment_id, status, type } = req.body;
+  const { title, reservation_time, location, confirmation_number, notes, day_id, place_id, assignment_id, status, type,
+    flight_number, airline, departure_airport, arrival_airport } = req.body;
 
   const trip = verifyTripOwnership(tripId, req.user.id);
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
@@ -97,7 +104,11 @@ router.put('/:id', authenticate, (req, res) => {
       place_id = ?,
       assignment_id = ?,
       status = COALESCE(?, status),
-      type = COALESCE(?, type)
+      type = COALESCE(?, type),
+      flight_number = ?,
+      airline = ?,
+      departure_airport = ?,
+      arrival_airport = ?
     WHERE id = ?
   `).run(
     title || null,
@@ -110,6 +121,10 @@ router.put('/:id', authenticate, (req, res) => {
     assignment_id !== undefined ? (assignment_id || null) : reservation.assignment_id,
     status || null,
     type || null,
+    flight_number !== undefined ? (flight_number || null) : reservation.flight_number,
+    airline !== undefined ? (airline || null) : reservation.airline,
+    departure_airport !== undefined ? (departure_airport || null) : reservation.departure_airport,
+    arrival_airport !== undefined ? (arrival_airport || null) : reservation.arrival_airport,
     id
   );
 

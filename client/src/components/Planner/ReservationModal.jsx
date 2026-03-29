@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Modal from '../shared/Modal'
 import CustomSelect from '../shared/CustomSelect'
-import { Plane, Hotel, Utensils, Train, Car, Ship, Ticket, FileText, Users, Paperclip, X, ExternalLink, Link2 } from 'lucide-react'
+import AirportAutocomplete from '../shared/AirportAutocomplete'
+import { Plane, Hotel, Utensils, Train, Car, Ship, Ticket, FileText, Users, Paperclip, X, ExternalLink, Link2, ArrowRight } from 'lucide-react'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
 import { CustomDateTimePicker } from '../shared/CustomDateTimePicker'
+import { mapsApi } from '../../api/client'
 
 const TYPE_OPTIONS = [
   { value: 'flight',     labelKey: 'reservations.type.flight',     Icon: Plane },
@@ -40,6 +42,23 @@ function buildAssignmentOptions(days, assignments, t, locale) {
   return options
 }
 
+function getIataFromAirport(str) {
+  if (!str) return ''
+  const m = str.match(/^([A-Z]{3})\s*-/)
+  return m ? m[1] : ''
+}
+
+function buildFlightTitle(form) {
+  const parts = []
+  if (form.flight_number) parts.push(form.flight_number)
+  const dep = getIataFromAirport(form.departure_airport)
+  const arr = getIataFromAirport(form.arrival_airport)
+  if (dep && arr) parts.push(`${dep} → ${arr}`)
+  else if (dep) parts.push(`from ${dep}`)
+  else if (arr) parts.push(`to ${arr}`)
+  return parts.join(' · ') || ''
+}
+
 export function ReservationModal({ isOpen, onClose, onSave, reservation, days, places, assignments, selectedDayId, files = [], onFileUpload, onFileDelete }) {
   const toast = useToast()
   const { t, locale } = useTranslation()
@@ -49,10 +68,12 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
     title: '', type: 'other', status: 'pending',
     reservation_time: '', location: '', confirmation_number: '',
     notes: '', assignment_id: '',
+    flight_number: '', airline: '', departure_airport: '', arrival_airport: '',
   })
   const [isSaving, setIsSaving] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [pendingFiles, setPendingFiles] = useState([])
+  const airlineLookupRef = useRef(null)
 
   const assignmentOptions = useMemo(
     () => buildAssignmentOptions(days, assignments, t, locale),
@@ -70,12 +91,17 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
         confirmation_number: reservation.confirmation_number || '',
         notes: reservation.notes || '',
         assignment_id: reservation.assignment_id || '',
+        flight_number: reservation.flight_number || '',
+        airline: reservation.airline || '',
+        departure_airport: reservation.departure_airport || '',
+        arrival_airport: reservation.arrival_airport || '',
       })
     } else {
       setForm({
         title: '', type: 'other', status: 'pending',
         reservation_time: '', location: '', confirmation_number: '',
         notes: '', assignment_id: '',
+        flight_number: '', airline: '', departure_airport: '', arrival_airport: '',
       })
       setPendingFiles([])
     }
@@ -83,15 +109,61 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
 
   const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
 
+  // Auto-detect airline from flight number (e.g. "LH123" → "LH" → "Deutsche Lufthansa AG")
+  const handleFlightNumberChange = useCallback((val) => {
+    const v = val.toUpperCase().replace(/[^A-Z0-9]/g, '')
+    setForm(prev => ({ ...prev, flight_number: v }))
+
+    // Extract airline code: 2-letter IATA code at start of flight number
+    const match = v.match(/^([A-Z]{2})\d/)
+    const code = match ? match[1] : null
+
+    clearTimeout(airlineLookupRef.current)
+    if (code) {
+      airlineLookupRef.current = setTimeout(async () => {
+        try {
+          const data = await mapsApi.lookupAirline(code)
+          if (data.airline) {
+            setForm(prev => {
+              const next = { ...prev, airline: data.airline.name }
+              // Auto-generate title from flight info
+              next.title = buildFlightTitle(next)
+              return next
+            })
+          }
+        } catch { /* ignore */ }
+      }, 300)
+    } else {
+      setForm(prev => ({ ...prev, airline: '' }))
+    }
+  }, [])
+
+  // Auto-update title when airports change
+  const handleAirportChange = useCallback((field, value) => {
+    setForm(prev => {
+      const next = { ...prev, [field]: value }
+      next.title = buildFlightTitle(next)
+      return next
+    })
+  }, [])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.title.trim()) return
     setIsSaving(true)
     try {
-      const saved = await onSave({
+      const payload = {
         ...form,
         assignment_id: form.assignment_id || null,
-      })
+      }
+      // Only include flight fields when type is flight
+      if (form.type !== 'flight') {
+        payload.flight_number = null
+        payload.airline = null
+        payload.departure_airport = null
+        payload.arrival_airport = null
+      }
+      const saved = await onSave(payload)
       if (!reservation?.id && saved?.id && pendingFiles.length > 0) {
         for (const file of pendingFiles) {
           const fd = new FormData()
@@ -162,11 +234,40 @@ export function ReservationModal({ isOpen, onClose, onSave, reservation, days, p
           </div>
         </div>
 
-        {/* Title */}
+        {/* Flight-specific fields */}
+        {form.type === 'flight' && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label style={labelStyle}>{t('reservations.flightNumber')}</label>
+                <input type="text" value={form.flight_number} onChange={e => handleFlightNumberChange(e.target.value)}
+                  placeholder={t('reservations.flightNumberPlaceholder')} style={inputStyle} maxLength={10} />
+              </div>
+              <div>
+                <label style={labelStyle}>{t('reservations.airline')}</label>
+                <input type="text" value={form.airline} readOnly tabIndex={-1}
+                  style={{ ...inputStyle, background: 'var(--bg-secondary)', color: form.airline ? 'var(--text-primary)' : 'var(--text-faint)' }}
+                  placeholder="—" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ alignItems: 'end' }}>
+              <div>
+                <label style={labelStyle}>{t('reservations.departureAirport')}</label>
+                <AirportAutocomplete value={form.departure_airport} onChange={v => handleAirportChange('departure_airport', v)} />
+              </div>
+              <div>
+                <label style={labelStyle}>{t('reservations.arrivalAirport')}</label>
+                <AirportAutocomplete value={form.arrival_airport} onChange={v => handleAirportChange('arrival_airport', v)} />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Title (auto-generated for flights, manual for others) */}
         <div>
           <label style={labelStyle}>{t('reservations.titleLabel')} *</label>
           <input type="text" value={form.title} onChange={e => set('title', e.target.value)} required
-            placeholder={t('reservations.titlePlaceholder')} style={inputStyle} />
+            placeholder={form.type === 'flight' ? 'LH123 · FRA → JFK' : t('reservations.titlePlaceholder')} style={inputStyle} />
         </div>
 
         {/* Assignment Picker */}

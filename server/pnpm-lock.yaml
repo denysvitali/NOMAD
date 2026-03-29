@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      aircodes:
+        specifier: ^1.3.16
+        version: 1.3.16
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
@@ -69,6 +72,9 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  aircodes@1.3.16:
+    resolution: {integrity: sha512-ysPgP4iifjazWJfnfkywqpJMS+wVGzd9Z1t9oEeMjjbktavlxaJsFgmLl2OLdZru44sefc9/cCRUeeB7xKjxxQ==}
 
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
@@ -988,6 +994,8 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.0.0
+
+  aircodes@1.3.16: {}
 
   ansi-regex@5.0.1: {}
 

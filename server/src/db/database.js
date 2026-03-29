@@ -624,6 +624,13 @@ function initDb() {
     () => {
       try { _db.exec('ALTER TABLE users ADD COLUMN is_demo INTEGER DEFAULT 0'); } catch {}
     },
+    // 32: Flight-specific fields on reservations
+    () => {
+      try { _db.exec('ALTER TABLE reservations ADD COLUMN flight_number TEXT'); } catch {}
+      try { _db.exec('ALTER TABLE reservations ADD COLUMN airline TEXT'); } catch {}
+      try { _db.exec('ALTER TABLE reservations ADD COLUMN departure_airport TEXT'); } catch {}
+      try { _db.exec('ALTER TABLE reservations ADD COLUMN arrival_airport TEXT'); } catch {}
+    },
     // Future migrations go here (append only, never reorder)
   ];
 

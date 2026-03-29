@@ -145,6 +145,8 @@ export const mapsApi = {
   search: (query, lang) => apiClient.post(`/maps/search?lang=${lang || 'en'}`, { query }).then(r => r.data),
   details: (placeId, lang) => apiClient.get(`/maps/details/${placeId}`, { params: { lang } }).then(r => r.data),
   placePhoto: (placeId) => apiClient.get(`/maps/place-photo/${placeId}`).then(r => r.data),
+  searchAirports: (q) => apiClient.get('/maps/airports', { params: { q } }).then(r => r.data),
+  lookupAirline: (code) => apiClient.get('/maps/airline', { params: { code } }).then(r => r.data),
 }
 
 export const budgetApi = {

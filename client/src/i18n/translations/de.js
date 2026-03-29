@@ -618,6 +618,14 @@ const de = {
   'reservations.linkAssignment': 'Mit Tagesplanung verknüpfen',
   'reservations.pickAssignment': 'Zuordnung aus dem Plan wählen...',
   'reservations.noAssignment': 'Keine Verknüpfung',
+  'reservations.flightNumber': 'Flugnummer',
+  'reservations.flightNumberPlaceholder': 'z.B. LH123',
+  'reservations.airline': 'Fluggesellschaft',
+  'reservations.departureAirport': 'Abflug',
+  'reservations.arrivalAirport': 'Ankunft',
+  'reservations.searchAirport': 'Flughafen suchen...',
+  'reservations.noAirportsFound': 'Keine Flughäfen gefunden',
+  'reservations.route': 'Route',
 
   // Budget
   'budget.title': 'Budget',

@@ -1,8 +1,12 @@
 const express = require('express');
 const { db } = require('../db/database');
 const { authenticate } = require('../middleware/auth');
+const aircodes = require('aircodes');
 
 const router = express.Router();
+
+// Pre-load all airports once for fast prefix search
+const ALL_AIRPORTS = aircodes.findAirport('');
 
 // Get API key: user's own key, or fall back to any admin's key
 function getMapsKey(userId) {
@@ -225,6 +229,93 @@ router.get('/place-photo/:placeId', authenticate, async (req, res) => {
     console.error('Place photo error:', err);
     res.status(500).json({ error: 'Error fetching photo' });
   }
+});
+
+// GET /api/maps/airports?q=...
+// Searches airports by IATA code, name, or city
+router.get('/airports', authenticate, (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q || q.length < 2) return res.json({ airports: [] });
+
+  const upper = q.toUpperCase();
+  const lower = q.toLowerCase();
+  const results = [];
+  const seen = new Set();
+
+  const add = (ap) => {
+    if (!ap.iata || seen.has(ap.iata)) return;
+    seen.add(ap.iata);
+    results.push(ap);
+  };
+
+  // Exact IATA match first
+  if (q.length <= 4) {
+    const exact = aircodes.getAirportByIata(upper);
+    if (exact) add(exact);
+  }
+
+  // IATA prefix matches (e.g. "FR" → FRA)
+  if (q.length <= 3) {
+    for (const ap of ALL_AIRPORTS) {
+      if (results.length >= 15) break;
+      if (ap.iata && ap.iata.startsWith(upper)) add(ap);
+    }
+  }
+
+  // Name/city search — prefer exact city match, then startsWith, then includes
+  if (results.length < 15) {
+    const exactCity = [];
+    const startsCity = [];
+    const rest = [];
+    for (const ap of ALL_AIRPORTS) {
+      const cl = ap.city?.toLowerCase() || '';
+      const nl = ap.name?.toLowerCase() || '';
+      if (cl === lower) exactCity.push(ap);
+      else if (cl.startsWith(lower) || nl.startsWith(lower)) startsCity.push(ap);
+      else if (cl.includes(lower) || nl.includes(lower)) rest.push(ap);
+    }
+    for (const bucket of [exactCity, startsCity, rest]) {
+      for (const ap of bucket) {
+        if (results.length >= 15) break;
+        add(ap);
+      }
+    }
+  }
+
+  res.json({
+    airports: results.map(ap => ({
+      iata: ap.iata,
+      name: ap.name,
+      city: ap.city,
+      country: ap.country,
+    })),
+  });
+});
+
+// GET /api/maps/airline?code=LH
+// Looks up airline by IATA code (typically parsed from flight number)
+router.get('/airline', authenticate, (req, res) => {
+  const code = (req.query.code || '').trim().toUpperCase();
+  if (!code || code.length < 2 || code.length > 3) return res.json({ airline: null });
+
+  // Get all airlines with this IATA code
+  const allMatches = aircodes.findAirline(code).filter(a => a.iata === code);
+
+  if (allMatches.length === 0) {
+    return res.json({ airline: null });
+  }
+
+  // Prefer the passenger airline over cargo (heuristic: skip names containing "Cargo", "Freight")
+  const passenger = allMatches.find(a => !/cargo|freight/i.test(a.name));
+  const best = passenger || allMatches[0];
+
+  res.json({
+    airline: {
+      iata: best.iata,
+      name: best.name,
+      logo: best.logo || null,
+    },
+  });
 });
 
 module.exports = router;

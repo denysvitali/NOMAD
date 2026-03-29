@@ -6,7 +6,7 @@ import { useTranslation } from '../../i18n'
 import {
   Plane, Hotel, Utensils, Train, Car, Ship, Ticket, FileText, MapPin,
   Calendar, Hash, CheckCircle2, Circle, Pencil, Trash2, Plus, ChevronDown, ChevronRight, Users,
-  ExternalLink, BookMarked, Lightbulb, Link2, Clock,
+  ExternalLink, BookMarked, Lightbulb, Link2, Clock, ArrowRight, PlaneTakeoff, PlaneLanding,
 } from 'lucide-react'
 
 const TYPE_OPTIONS = [
@@ -90,6 +90,59 @@ function ReservationCard({ r, tripId, onEdit, onDelete, files = [], onNavigateTo
           <Trash2 size={11} />
         </button>
       </div>
+
+      {/* Flight Route */}
+      {r.type === 'flight' && (r.departure_airport || r.arrival_airport || r.airline) && (
+        <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Airline */}
+          {r.airline && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+              <Plane size={10} style={{ color: '#3b82f6', flexShrink: 0 }} />
+              <span style={{ fontWeight: 600 }}>{r.airline}</span>
+              {r.flight_number && <span style={{ color: 'var(--text-faint)' }}>({r.flight_number})</span>}
+            </div>
+          )}
+          {/* Route display */}
+          {(r.departure_airport || r.arrival_airport) && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 0, borderRadius: 8, overflow: 'hidden',
+              background: 'var(--bg-secondary)', boxShadow: '0 1px 6px rgba(0,0,0,0.08)',
+            }}>
+              {r.departure_airport && (
+                <div style={{ flex: 1, padding: '6px 10px', textAlign: 'center', borderRight: '1px solid var(--border-faint)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 2 }}>
+                    <PlaneTakeoff size={10} style={{ color: '#3b82f6' }} />
+                    <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{t('reservations.departureAirport')}</span>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
+                    {r.departure_airport.match(/^([A-Z]{3})/)?.[1] || r.departure_airport}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-faint)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.departure_airport.replace(/^[A-Z]{3}\s*-\s*/, '')}
+                  </div>
+                </div>
+              )}
+              <div style={{ padding: '0 6px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                <ArrowRight size={14} style={{ color: 'var(--text-faint)' }} />
+              </div>
+              {r.arrival_airport && (
+                <div style={{ flex: 1, padding: '6px 10px', textAlign: 'center', borderLeft: '1px solid var(--border-faint)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 2 }}>
+                    <PlaneLanding size={10} style={{ color: '#3b82f6' }} />
+                    <span style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{t('reservations.arrivalAirport')}</span>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '0.05em' }}>
+                    {r.arrival_airport.match(/^([A-Z]{3})/)?.[1] || r.arrival_airport}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-faint)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.arrival_airport.replace(/^[A-Z]{3}\s*-\s*/, '')}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Details */}
       {(r.reservation_time || r.confirmation_number || r.location || linked) && (
