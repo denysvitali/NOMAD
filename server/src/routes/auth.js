@@ -402,8 +402,9 @@ router.get('/validate-keys', authenticate, async (req, res) => {
   // Test AeroDataBox API (flight data)
   if (user.aviation_api_key) {
     try {
+      // Use the same endpoint as actual flight lookup to validate the key
       const aviationRes = await fetch(
-        'https://aerodatabox.p.rapidapi.com/health/services/feeds',
+        'https://aerodatabox.p.rapidapi.com/flights/number/LH1/2026-03-29',
         {
           headers: {
             'x-rapidapi-key': user.aviation_api_key,
@@ -411,8 +412,12 @@ router.get('/validate-keys', authenticate, async (req, res) => {
           },
         }
       );
-      result.aviation = aviationRes.status === 200;
+      const text = await aviationRes.text().catch(() => '');
+      console.log(`AeroDataBox validation: status=${aviationRes.status}, key=${user.aviation_api_key.slice(0, 8)}..., body=${text.slice(0, 100)}`);
+      // Any 2xx = valid key (404 means valid key but no flights on that route)
+      result.aviation = aviationRes.ok || aviationRes.status === 404;
     } catch (err) {
+      console.error('AeroDataBox validation error:', err.message);
       result.aviation = false;
     }
   }
