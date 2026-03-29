@@ -104,6 +104,7 @@ const settingsRoutes = require('./routes/settings');
 const budgetRoutes = require('./routes/budget');
 const collabRoutes = require('./routes/collab');
 const backupRoutes = require('./routes/backup');
+const companionRoutes = require('./routes/companion');
 
 const oidcRoutes = require('./routes/oidc');
 app.use('/api/auth', authRoutes);
@@ -117,7 +118,10 @@ app.use('/api/trips/:tripId/files', filesRoutes);
 app.use('/api/trips/:tripId/budget', budgetRoutes);
 app.use('/api/trips/:tripId/collab', collabRoutes);
 app.use('/api/trips/:tripId/reservations', reservationsRoutes);
+app.use('/api/trips/:tripId/companion-data', companionRoutes);
 app.use('/api/trips/:tripId/days/:dayId/notes', dayNotesRoutes);
+const aiRoutes = require('./routes/ai');
+app.use('/api/trips/:tripId/ai', aiRoutes);
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api', assignmentsRoutes);
 app.use('/api/tags', tagsRoutes);
@@ -167,6 +171,7 @@ const server = app.listen(PORT, () => {
   if (process.env.DEMO_MODE === 'true') console.log('Demo mode: ENABLED');
   scheduler.start();
   scheduler.startDemoReset();
+  scheduler.startBriefingJob();
   const { setupWebSocket } = require('./websocket');
   setupWebSocket(server);
 });

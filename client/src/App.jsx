@@ -1,21 +1,24 @@
-import React, { useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import React, { useEffect, useState } from 'react'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { useSettingsStore } from './store/settingsStore'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import TripPlannerPage from './pages/TripPlannerPage'
+import CompanionPage from './pages/CompanionPage'
 // PhotosPage removed - replaced by Finanzplan
 import FilesPage from './pages/FilesPage'
 import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
 import VacayPage from './pages/VacayPage'
 import AtlasPage from './pages/AtlasPage'
-import { ToastContainer } from './components/shared/Toast'
+import { ToastContainer, useToast } from './components/shared/Toast'
 import { TranslationProvider, useTranslation } from './i18n'
 import DemoBanner from './components/Layout/DemoBanner'
 import { authApi } from './api/client'
+import { addListener, removeListener } from './api/websocket'
+import BriefingsPanel from './components/shared/BriefingsPanel'
 
 function ProtectedRoute({ children, adminRequired = false }) {
   const { isAuthenticated, user, isLoading } = useAuthStore()
@@ -60,6 +63,34 @@ function RootRedirect() {
 export default function App() {
   const { loadUser, token, isAuthenticated, demoMode, setDemoMode, setHasMapsKey } = useAuthStore()
   const { loadSettings } = useSettingsStore()
+  const toast = useToast()
+  const navigate = useNavigate()
+  const [pendingBriefings, setPendingBriefings] = useState([])
+
+  // WebSocket listener for trip briefings
+  useEffect(() => {
+    function handleMessage(data) {
+      if (data.type === 'trip_briefing') {
+        const { tripId, briefing } = data
+        setPendingBriefings(prev => {
+          // Avoid duplicates
+          const exists = prev.some(b => b.tripId === tripId)
+          if (exists) return prev
+          return [...prev, { tripId, briefing, receivedAt: new Date() }]
+        })
+        // Show toast notification
+        const tripTitle = briefing?.trip?.title || 'Your trip'
+        toast.info(`Your briefing for "${tripTitle}" is ready!`)
+      }
+    }
+    addListener(handleMessage)
+    return () => removeListener(handleMessage)
+  }, [])
+
+  // Dismiss a briefing (mark as viewed/removed)
+  const handleDismissBriefing = (tripId) => {
+    setPendingBriefings(prev => prev.filter(b => b.tripId !== tripId))
+  }
 
   useEffect(() => {
     if (token) {
@@ -123,6 +154,14 @@ export default function App() {
           }
         />
         <Route
+          path="/trip/:id/companion"
+          element={
+            <ProtectedRoute>
+              <CompanionPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/trips/:id/files"
           element={
             <ProtectedRoute>
@@ -164,6 +203,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <BriefingsPanel pendingBriefings={pendingBriefings} onDismiss={handleDismissBriefing} />
     </TranslationProvider>
   )
 }

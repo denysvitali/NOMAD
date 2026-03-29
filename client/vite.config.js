@@ -54,6 +54,16 @@ export default defineConfig({
             },
           },
           {
+            // Trip Companion data — cache first for offline support
+            urlPattern: /\/api\/trips\/\d+\/companion-data/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'companion-data-v1',
+              expiration: { maxAgeSeconds: 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
             // Uploaded files (photos, covers, documents)
             urlPattern: /\/uploads\/.*/i,
             handler: 'CacheFirst',
