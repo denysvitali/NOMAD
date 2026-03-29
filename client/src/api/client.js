@@ -148,6 +148,7 @@ export const mapsApi = {
   searchAirports: (q) => apiClient.get('/maps/airports', { params: { q } }).then(r => r.data),
   lookupAirline: (code) => apiClient.get('/maps/airline', { params: { code } }).then(r => r.data),
   lookupFlight: (number, date) => apiClient.get('/maps/flight', { params: { number, date } }).then(r => r.data),
+  getPlaceInfo: (search, lang) => apiClient.get('/maps/place-info', { params: { search, lang } }).then(r => r.data),
 }
 
 export const budgetApi = {
@@ -192,6 +193,10 @@ export const accommodationsApi = {
   create: (tripId, data) => apiClient.post(`/trips/${tripId}/accommodations`, data).then(r => r.data),
   update: (tripId, id, data) => apiClient.put(`/trips/${tripId}/accommodations/${id}`, data).then(r => r.data),
   delete: (tripId, id) => apiClient.delete(`/trips/${tripId}/accommodations/${id}`).then(r => r.data),
+}
+
+export const companionApi = {
+  getData: (tripId) => apiClient.get(`/trips/${tripId}/companion-data`).then(r => r.data),
 }
 
 export const dayNotesApi = {

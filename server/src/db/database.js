@@ -645,6 +645,44 @@ function initDb() {
         )
       `);
     },
+    // 35: Place info cache table (Wikipedia + Wikidata enrichment)
+    () => {
+      _db.exec(`
+        CREATE TABLE IF NOT EXISTS place_info_cache (
+          cache_key TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          lang TEXT NOT NULL DEFAULT 'en',
+          summary TEXT,
+          facts_json TEXT,
+          image_url TEXT,
+          wikipedia_url TEXT,
+          fetched_at INTEGER
+        )
+      `);
+    },
+    // 36: Anthropic API key for AI trip generation
+    () => {
+      try { _db.exec('ALTER TABLE users ADD COLUMN anthropic_api_key TEXT'); } catch {}
+    },
+    // 37: Trip briefing columns
+    () => {
+      try { _db.exec('ALTER TABLE trips ADD COLUMN briefing_sent_at TEXT'); } catch {}
+      try { _db.exec('ALTER TABLE trips ADD COLUMN briefing_payload_json TEXT'); } catch {}
+    },
+    // 38: Trip sessions for shareable live pages
+    () => {
+      _db.exec(`
+        CREATE TABLE IF NOT EXISTS trip_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          trip_id INTEGER NOT NULL REFERENCES trips(id),
+          token TEXT NOT NULL UNIQUE,
+          password_hash TEXT,
+          created_by INTEGER REFERENCES users(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          expires_at DATETIME
+        )
+      `);
+    },
     // Future migrations go here (append only, never reorder)
   ];
 
@@ -789,4 +827,27 @@ function isOwner(tripId, userId) {
   return !!_db.prepare('SELECT id FROM trips WHERE id = ? AND user_id = ?').get(tripId, userId);
 }
 
-module.exports = { db, closeDb, reinitialize, getPlaceWithTags, canAccessTrip, isOwner };
+function getTripSessionByToken(token) {
+  return _db.prepare('SELECT * FROM trip_sessions WHERE token = ?').get(token);
+}
+
+function validateTripSession(token, password) {
+  const session = _db.prepare('SELECT * FROM trip_sessions WHERE token = ?').get(token);
+  if (!session) return null;
+
+  // Check expiry
+  if (session.expires_at && new Date(session.expires_at) < new Date()) {
+    return null;
+  }
+
+  // Check password if required
+  if (session.password_hash) {
+    if (!password) return null;
+    const bcrypt = require('bcryptjs');
+    if (!bcrypt.compareSync(password, session.password_hash)) return null;
+  }
+
+  return session;
+}
+
+module.exports = { db, closeDb, reinitialize, getPlaceWithTags, canAccessTrip, isOwner, getTripSessionByToken, validateTripSession };

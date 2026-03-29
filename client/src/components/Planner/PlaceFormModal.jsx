@@ -4,7 +4,7 @@ import CustomSelect from '../shared/CustomSelect'
 import { mapsApi } from '../../api/client'
 import { useAuthStore } from '../../store/authStore'
 import { useToast } from '../shared/Toast'
-import { Search, Paperclip, X, AlertTriangle } from 'lucide-react'
+import { Search, Paperclip, X, AlertTriangle, Check } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import CustomTimePicker from '../shared/CustomTimePicker'
 
@@ -34,6 +34,8 @@ export default function PlaceFormModal({
   const [showNewCategory, setShowNewCategory] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [pendingFiles, setPendingFiles] = useState([])
+  const [enriching, setEnriching] = useState(false)
+  const [enriched, setEnriched] = useState(false)
   const fileRef = useRef(null)
   const toast = useToast()
   const { t, language } = useTranslation()
@@ -58,7 +60,28 @@ export default function PlaceFormModal({
       setForm(DEFAULT_FORM)
     }
     setPendingFiles([])
+    setEnriched(false)
+    setEnriching(false)
   }, [place, isOpen])
+
+  // Fire background enrichment request when a place is selected from map search
+  useEffect(() => {
+    if (!form.google_place_id || !form.name || !form.name.trim()) return
+    // Only auto-enrich when coming from a map search (not editing an existing place with google_place_id already set)
+    if (enriched || enriching) return
+    let cancelled = false
+    setEnriching(true)
+    mapsApi.getPlaceInfo(form.name, language)
+      .then(data => {
+        if (cancelled) return
+        if (data.summary || data.facts) {
+          setEnriched(true)
+        }
+      })
+      .catch(() => { if (cancelled) return })
+      .finally(() => { if (!cancelled) setEnriching(false) })
+    return () => { cancelled = true }
+  }, [form.google_place_id, form.name])
 
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -204,14 +227,24 @@ export default function PlaceFormModal({
         {/* Name */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">{t('places.formName')} *</label>
-          <input
-            type="text"
-            value={form.name}
-            onChange={e => handleChange('name', e.target.value)}
-            required
-            placeholder={t('places.formNamePlaceholder')}
-            className="form-input"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={form.name}
+              onChange={e => handleChange('name', e.target.value)}
+              required
+              placeholder={t('places.formNamePlaceholder')}
+              className="form-input"
+            />
+            {enriching && (
+              <span className="text-xs text-slate-400 animate-pulse">{t('places.loadingInfo')}</span>
+            )}
+            {!enriching && enriched && (
+              <span className="flex items-center gap-1 text-xs text-emerald-600">
+                <Check size={12} />{t('places.enriched')}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Description */}

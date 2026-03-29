@@ -23,6 +23,13 @@ function getMapsKey(userId) {
   return admin?.maps_api_key || null;
 }
 
+function getAnthropicKey(userId) {
+  const user = db.prepare('SELECT anthropic_api_key FROM users WHERE id = ?').get(userId);
+  if (user?.anthropic_api_key) return user.anthropic_api_key;
+  const admin = db.prepare("SELECT anthropic_api_key FROM users WHERE role = 'admin' AND anthropic_api_key IS NOT NULL AND anthropic_api_key != '' LIMIT 1").get();
+  return admin?.anthropic_api_key || null;
+}
+
 // In-memory photo cache: placeId → { photoUrl, attribution, fetchedAt }
 const photoCache = new Map();
 const PHOTO_TTL = 12 * 60 * 60 * 1000; // 12 hours
@@ -73,6 +80,154 @@ function setFlightCache(key, data) {
       db.prepare('DELETE FROM flight_cache WHERE fetched_at < ?').run(now - FLIGHT_DB_TTL);
     } catch { /* ignore */ }
   }
+}
+
+// Place info cache: dual-layer (in-memory + SQLite) for Wikipedia/Wikidata enrichment
+const placeInfoCache = new Map();
+const PLACE_INFO_MEM_TTL = 30 * 24 * 60 * 60 * 1000;  // 30 days in-memory
+const PLACE_INFO_DB_TTL = 30 * 24 * 60 * 60 * 1000;    // 30 days in SQLite
+
+function getPlaceInfoFromCache(key) {
+  // Layer 1: in-memory
+  const mem = placeInfoCache.get(key);
+  if (mem && Date.now() - mem.fetchedAt < PLACE_INFO_MEM_TTL) {
+    return mem.data;
+  }
+
+  // Layer 2: SQLite
+  try {
+    const row = db.prepare('SELECT summary, facts_json, image_url, wikipedia_url, fetched_at FROM place_info_cache WHERE cache_key = ?').get(key);
+    if (row && Date.now() - row.fetched_at < PLACE_INFO_DB_TTL) {
+      const data = {
+        summary: row.summary,
+        facts: row.facts_json ? JSON.parse(row.facts_json) : null,
+        imageUrl: row.image_url,
+        wikipediaUrl: row.wikipedia_url,
+      };
+      // Promote back to memory cache
+      placeInfoCache.set(key, { data, fetchedAt: row.fetched_at });
+      return data;
+    }
+  } catch { /* table may not exist yet before migration runs */ }
+
+  return null;
+}
+
+function setPlaceInfoCache(key, data) {
+  const now = Date.now();
+  // Layer 1: in-memory
+  placeInfoCache.set(key, { data, fetchedAt: now });
+
+  // Layer 2: SQLite (persist for restarts)
+  try {
+    db.prepare(
+      'INSERT OR REPLACE INTO place_info_cache (cache_key, name, lang, summary, facts_json, image_url, wikipedia_url, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(key, data.name || '', data.lang || 'en', data.summary || null, data.facts ? JSON.stringify(data.facts) : null, data.imageUrl || null, data.wikipediaUrl || null, now);
+  } catch { /* ignore if table doesn't exist yet */ }
+
+  // Prune old SQLite entries occasionally (1 in 20 writes)
+  if (Math.random() < 0.05) {
+    try {
+      db.prepare('DELETE FROM place_info_cache WHERE fetched_at < ?').run(now - PLACE_INFO_DB_TTL);
+    } catch { /* ignore */ }
+  }
+}
+
+// Strip parentheticals like "(city)" from a title for fallback Wikipedia lookup
+function stripParentheticals(title) {
+  return title.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+async function getPlaceInfo(name, lang = 'en') {
+  const cacheKey = `${lang}:${name}`;
+  const cached = getPlaceInfoFromCache(cacheKey);
+  if (cached !== null) return cached;
+
+  const title = encodeURIComponent(name);
+  const langPrefix = lang === 'en' ? 'en' : lang;
+
+  let summary = null;
+  let imageUrl = null;
+  let wikipediaUrl = null;
+  let wikidataId = null;
+
+  // Try Wikipedia REST API summary
+  try {
+    const url = lang === 'en'
+      ? `https://en.wikipedia.org/api/rest_v1/page/summary/${title}`
+      : `https://${langPrefix}.wikipedia.org/api/rest_v1/page/summary/${title}`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'NOMAD Travel Planner (https://github.com/mauriceboe/NOMAD)' },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      summary = data.extract || null;
+      imageUrl = data.thumbnail?.source || null;
+      wikipediaUrl = data.content_urls?.desktop?.page || null;
+      wikidataId = data.wikidata_id || null;
+    } else if (response.status === 404 && lang === 'en') {
+      // Fallback: try stripping parentheticals
+      const stripped = stripParentheticals(name);
+      if (stripped !== name) {
+        return getPlaceInfo(stripped, lang);
+      }
+    }
+  } catch { /* ignore fetch errors */ }
+
+  // Fetch Wikidata for additional facts if we have a wikidata_id
+  let facts = null;
+  if (wikidataId) {
+    try {
+      const wdResponse = await fetch(
+        `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${wikidataId}&format=json&props=claims`,
+        { headers: { 'User-Agent': 'NOMAD Travel Planner (https://github.com/mauriceboe/NOMAD)' } }
+      );
+      if (wdResponse.ok) {
+        const wdData = await wdResponse.json();
+        const entity = wdData.entities?.[wikidataId];
+        if (entity?.claims) {
+          const claims = entity.claims;
+          const getValue = (prop) => {
+            const cv = claims[prop]?.[0]?.mainsnak?.datavalue?.value;
+            return cv !== undefined ? cv : null;
+          };
+          const population = getValue('P1082');
+          const elevation = getValue('P2046');
+          const timezone = getValue('P421');
+          // UNESCO status: P757 = "World Heritage Site", P2610 = "UNESCO ID" or check P1799
+          const hasUnesco = claims['P757'] || claims['P1799'] || claims['P2610'];
+          // Continent: P30
+          const continentId = getValue('P30');
+          let continent = null;
+          if (continentId) {
+            try {
+              const contResp = await fetch(
+                `https://www.wikidata.org/wiki/Special:EntityData/${continentId}.json`,
+                { headers: { 'User-Agent': 'NOMAD Travel Planner (https://github.com/mauriceboe/NOMAD)' } }
+              );
+              if (contResp.ok) {
+                const contData = await contResp.json();
+                continent = contData.entities?.[continentId]?.labels?.[lang]?.value ||
+                  contData.entities?.[continentId]?.labels?.en?.value || null;
+              }
+            } catch { /* ignore */ }
+          }
+          facts = {
+            population: population != null ? Number(population) : null,
+            elevation: elevation != null ? Number(elevation) : null,
+            timezone: timezone || null,
+            isUNESCO: !!hasUnesco,
+            continent: continent || null,
+          };
+        }
+      }
+    } catch { /* ignore Wikidata errors */ }
+  }
+
+  const result = { summary, facts, imageUrl, wikipediaUrl, name, lang };
+  setPlaceInfoCache(cacheKey, result);
+  return result;
 }
 
 // Nominatim search (OpenStreetMap) — free fallback when no Google API key
@@ -471,6 +626,26 @@ router.get('/flight', authenticate, async (req, res) => {
   } catch (err) {
     console.error('Flight lookup error:', err);
     res.status(500).json({ error: 'Flight lookup error' });
+  }
+});
+
+// GET /api/maps/place-info?search=...&lang=en
+// Returns Wikipedia summary and key facts for a place name
+router.get('/place-info', authenticate, async (req, res) => {
+  const { search } = req.query;
+  const lang = /^[a-z]{2,5}(-[A-Za-z]{2,5})?$/.test(req.query.lang) ? req.query.lang : 'en';
+
+  if (!search || !search.trim()) {
+    return res.status(400).json({ error: 'Search term is required' });
+  }
+
+  try {
+    const data = await getPlaceInfo(search.trim(), lang);
+    // Don't return 404 for missing data — just return what we have
+    res.json(data);
+  } catch (err) {
+    console.error('Place info error:', err);
+    res.status(500).json({ error: 'Error fetching place info' });
   }
 });
 

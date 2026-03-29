@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, ExternalLink, Phone, MapPin, Clock, Euro, Edit2, Trash2, Plus, Minus } from 'lucide-react'
+import { X, ExternalLink, Phone, MapPin, Clock, Euro, Edit2, Trash2, Plus, Minus, Info, ChevronDown, ChevronUp, Globe } from 'lucide-react'
 import { mapsApi } from '../../api/client'
 import { useTranslation } from '../../i18n'
 
@@ -7,9 +7,12 @@ export function PlaceDetailPanel({
   place, categories, tags, selectedDayId, dayAssignments,
   onClose, onEdit, onDelete, onAssignToDay, onRemoveAssignment,
 }) {
-  const { t } = useTranslation()
+  const { t, language } = useTranslation()
   const [googlePhoto, setGooglePhoto] = useState(null)
   const [photoAttribution, setPhotoAttribution] = useState(null)
+  const [placeInfo, setPlaceInfo] = useState(null)
+  const [loadingInfo, setLoadingInfo] = useState(false)
+  const [showInsiderBrief, setShowInsiderBrief] = useState(false)
 
   useEffect(() => {
     if (!place?.google_place_id || place?.image_url) {
@@ -23,6 +26,19 @@ export function PlaceDetailPanel({
       })
       .catch(() => setGooglePhoto(null))
   }, [place?.google_place_id, place?.image_url])
+
+  // Fetch Wikipedia/Wikidata enrichment when place name is available
+  useEffect(() => {
+    if (!place?.name) { setPlaceInfo(null); return }
+    let cancelled = false
+    setLoadingInfo(true)
+    setPlaceInfo(null)
+    mapsApi.getPlaceInfo(place.name, language)
+      .then(data => { if (!cancelled) setPlaceInfo(data) })
+      .catch(() => { if (!cancelled) setPlaceInfo(null) })
+      .finally(() => { if (!cancelled) setLoadingInfo(false) })
+    return () => { cancelled = true }
+  }, [place?.name, language])
 
   if (!place) return null
 
@@ -156,6 +172,74 @@ export function PlaceDetailPanel({
           </div>
         )}
 
+        {/* Insider Brief */}
+        {(loadingInfo || placeInfo?.summary || placeInfo?.facts) && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowInsiderBrief(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors text-left"
+            >
+              <span className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <Globe size={13} className="text-slate-500" />
+                {t('places.insiderBrief')}
+              </span>
+              {showInsiderBrief ? (
+                <ChevronUp size={13} className="text-slate-400" />
+              ) : (
+                <ChevronDown size={13} className="text-slate-400" />
+              )}
+            </button>
+
+            {showInsiderBrief && (
+              <div className="mt-2 space-y-2">
+                {/* Summary */}
+                {placeInfo?.summary && (
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    {placeInfo.summary}
+                  </p>
+                )}
+
+                {/* Key Facts */}
+                {placeInfo?.facts && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {placeInfo.facts.population != null && (
+                      <FactChip label={t('places.population')} value={Number(placeInfo.facts.population).toLocaleString(language === 'de' ? 'de-DE' : 'en-US')} />
+                    )}
+                    {placeInfo.facts.elevation != null && (
+                      <FactChip label={t('places.elevation')} value={`${Number(placeInfo.facts.elevation).toLocaleString(language === 'de' ? 'de-DE' : 'en-US')} m`} />
+                    )}
+                    {placeInfo.facts.timezone && (
+                      <FactChip label={t('places.timezone')} value={placeInfo.facts.timezone} />
+                    )}
+                    {placeInfo.facts.continent && (
+                      <FactChip label={t('places.continent')} value={placeInfo.facts.continent} />
+                    )}
+                    {placeInfo.facts.isUNESCO && (
+                      <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
+                        <span className="text-xs font-medium text-amber-800">{t('places.worldHeritage')}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Wikipedia Source */}
+                {placeInfo?.wikipediaUrl && (
+                  <a
+                    href={placeInfo.wikipediaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    <ExternalLink size={10} />
+                    {t('places.sourceWikipedia')}
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Tags */}
         {placeTags.length > 0 && (
           <div className="flex flex-wrap gap-1">
@@ -222,4 +306,13 @@ function formatDateTime(dt) {
   } catch {
     return dt
   }
+}
+
+function FactChip({ label, value }) {
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
+      <span className="text-xs text-slate-500 truncate">{label}</span>
+      <span className="text-xs font-semibold text-slate-800 truncate">{value}</span>
+    </div>
+  )
 }
