@@ -16,6 +16,14 @@ if (process.env.SENTRY_DSN) {
   });
 }
 
+// Catch unhandled promise rejections and report to Sentry + stderr
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Promise Rejection:', reason);
+  if (sentry) {
+    sentry.captureException(reason);
+  }
+});
+
 const app = express();
 
 // Trust the first proxy hop (e.g. nginx / Traefik) so req.ip reflects the
