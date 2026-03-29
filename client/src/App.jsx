@@ -20,6 +20,7 @@ import DemoBanner from './components/Layout/DemoBanner'
 import { authApi } from './api/client'
 import { addListener, removeListener } from './api/websocket'
 import BriefingsPanel from './components/shared/BriefingsPanel'
+import { initSentry } from './sentry'
 
 function ProtectedRoute({ children, adminRequired = false }) {
   const { isAuthenticated, user, isLoading } = useAuthStore()
@@ -67,6 +68,11 @@ export default function App() {
   const toast = useToast()
   const navigate = useNavigate()
   const [pendingBriefings, setPendingBriefings] = useState([])
+
+  // Initialize Sentry for client-side error tracking (lazy, runtime DSN)
+  useEffect(() => {
+    initSentry()
+  }, [])
 
   // WebSocket listener for trip briefings
   useEffect(() => {

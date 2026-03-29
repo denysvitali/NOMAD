@@ -42,4 +42,5 @@ ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["node", "src/index.js"]
+# Startup script: inject SENTRY_DSN into client index.html, then start server
+CMD ["sh", "-c", "node scripts/inject-sentry-dsn.js && node src/index.js"]
